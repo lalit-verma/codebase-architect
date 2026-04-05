@@ -307,7 +307,7 @@ Navigation hub. Under 250 lines.
 ## Documentation Scope
 - Coverage: {scope}
 - Evidence quality: {level}
-- Generated on: {date}
+- Generated: {YYYY-MM-DD HH:MM UTC}
 
 ## Recommended Reading Order
 1. **Coding agents:** Load `agent-context.md` at session start.

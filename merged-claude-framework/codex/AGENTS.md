@@ -32,6 +32,7 @@ agent-docs/
   patterns.md                # detected code patterns and conventions
   agent-brief.md             # compact architecture for agents
   agent-protocol.md          # wiring instructions for agents
+  routing-map.md             # task-to-doc routing (machine-readable)
   index.md                   # navigation hub
   system-overview.md         # top-level architecture
   decisions.md               # key trade-offs
@@ -52,7 +53,7 @@ agent-docs/
 1. **Discover & Map** — Classify repo, scan evidence, map subsystems,
    detect preliminary patterns, get confirmation, write system-overview.
 2. **Deep Dive** — Analyze one subsystem at a time. Detect patterns.
-   Recursively decompose large subsystems (depth limit 4). Write
+   Recursively decompose large subsystems (depth limit 3). Write
    subsystem docs. Run once per subsystem.
 3. **Synthesize** — Generate `agent-context.md` FIRST (primary output),
    then `patterns.md` (with user confirmation), then remaining docs.

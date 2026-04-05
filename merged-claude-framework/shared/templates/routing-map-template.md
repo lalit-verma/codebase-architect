@@ -17,37 +17,36 @@ agent-context.md manually.
   step. `doc` uses `patterns.md#` plus a slugified anchor of the
   pattern heading (lowercase, hyphens for spaces, strip special chars).
 
-```markdown
-# Routing Map
+## Output Format
 
-> Machine-readable task-to-doc routing. Use this for structured
-> lookups instead of scanning agent-context.md manually.
-> Generated: {YYYY-MM-DD HH:MM UTC}
-> Analysis version: v1 | Source commit: {short_sha}
+The generated file should contain: a markdown heading, the version
+header blockquote, and a single YAML code block with the routing data.
 
-```yaml
-subsystem_routing:
-  - name: "{subsystem}"
-    doc: "agent-docs/subsystems/{name}.md"
-    owns_paths:
-      - "{path glob}"
-    key_files:
-      - "{file}"
-    key_tests:
-      - "{test file}"
-    common_tasks:
-      - "{task description from Modification Guide}"
+    # Routing Map
 
-pattern_routing:
-  - pattern: "{pattern name}"
-    doc: "agent-docs/patterns.md#{slugified-anchor}"
-    subsystem: "{subsystem name}"
-    template_file: "{best file to copy}"
-    registration: "{file:line}"
-    test_template: "{best test to copy}"
-`` `
-`` `
-```
+    > Machine-readable task-to-doc routing. Use this for structured
+    > lookups instead of scanning agent-context.md manually.
+    > Generated: {YYYY-MM-DD HH:MM UTC}
+    > Analysis version: v1 | Source commit: {short_sha}
 
-Note: The triple-backtick nesting above is for template illustration.
-When generating, emit a single YAML code block inside the markdown file.
+    ```yaml
+    subsystem_routing:
+      - name: "{subsystem}"
+        doc: "agent-docs/subsystems/{name}.md"
+        owns_paths:
+          - "{path glob}"
+        key_files:
+          - "{file}"
+        key_tests:
+          - "{test file}"
+        common_tasks:
+          - "{task description from Modification Guide}"
+
+    pattern_routing:
+      - pattern: "{pattern name}"
+        doc: "agent-docs/patterns.md#{slugified-anchor}"
+        subsystem: "{subsystem name}"
+        template_file: "{best file to copy}"
+        registration: "{file:line}"
+        test_template: "{best test to copy}"
+    ```
