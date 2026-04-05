@@ -323,6 +323,7 @@ codex/
 cursor/
   SKILL.md                          Cursor skill with auto-trigger
 eval/
+  README.md                         when to use each eval, known limitations
   eval-toolkit.md                   evaluate the framework itself
   eval-output.md                    evaluate agent-docs/ output quality
 ```

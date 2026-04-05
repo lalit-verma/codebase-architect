@@ -67,6 +67,29 @@ For each of the 10 dimensions below, produce:
   least the number specified per dimension. Record each check result.
 - Be harsh. The purpose is to find gaps, not to validate.
 
+### Critical-Fail Overrides
+
+These conditions automatically cap the overall grade regardless of
+other dimension scores. Check these FIRST before scoring dimensions.
+
+**Auto-FAIL D1 (caps overall at "Needs Work" max):**
+- agent-context.md exceeds 120 lines
+- agent-context.md contains markdown tables
+- Standalone test: Q1, Q2, or Q3 all FAIL (agent cannot find where
+  to create files, what pattern to follow, or what to avoid — the
+  three most basic questions)
+
+**Auto-FAIL D10 (caps overall at "Good" max):**
+- Task 1 (most common change) grades FAIL — if the docs can't guide
+  the most frequent task type, they're not production-ready
+
+**Auto-FAIL D6 (caps overall at "Needs Work" max):**
+- agent-context.md is missing entirely
+- More than 3 expected files from the output set are missing
+
+These overrides apply after scoring. If a critical-fail is triggered,
+note it in the synthesis and adjust the final grade accordingly.
+
 ---
 
 ## Expected Output File Set
@@ -163,8 +186,13 @@ deficiency here costs efficiency across all future tasks in the repo.
 ### Standalone Test (the critical test)
 
 Close all other files. Read ONLY agent-context.md. Attempt to answer
-these 5 questions. For each, record the answer you can derive and
-whether it's sufficient:
+these 7 questions. For each, record the answer you can derive and
+whether it's sufficient.
+
+Note: Q1-Q5 overlap with the tool's built-in smoke test
+(`validation-rules.md`). If the tool ran its self-validation correctly,
+Q1-Q5 should pass. Q6-Q7 are ADDITIONAL questions the tool does NOT
+self-check — these test beyond the tool's own quality gate.
 
 **Q1: "Where would I create a new [most common entity type in this
 repo]?"**
@@ -197,6 +225,25 @@ Architecture map]?"**
 - PASS: 2+ entries with file:line references that name specific
   interfaces, types, or abstractions
 - FAIL: section missing, empty, or entries lack file references
+
+**Q6 (beyond self-validation): "Where are tests for [the most common
+entity type] and what test pattern do I follow?"**
+- Look in Key patterns for a test step, and in Conventions for test
+  structure
+- PASS: agent-context.md specifies both the test file location
+  convention and the test pattern (e.g., "tests use vitest with
+  factory helpers")
+- FAIL: test location is mentioned but test pattern/style is missing,
+  or neither is mentioned
+
+**Q7 (beyond self-validation): "If I encounter an error in this
+codebase, how are errors handled?"**
+- Look in Conventions for error handling style
+- PASS: Conventions section describes the error handling pattern with
+  a file reference (e.g., "Error wrapping with `AppError` class (see
+  `src/errors.ts`)")
+- FAIL: no error handling convention mentioned, or it's generic
+  ("handle errors appropriately")
 
 Record each Q as PASS/FAIL with the specific text you used to answer.
 
@@ -265,7 +312,7 @@ smaller/peripheral one. Evaluate each separately then combine.
 
 For each sampled subsystem doc:
 
-1. **Section completeness.** Check all 15 required sections are present:
+1. **Section completeness.** Check all 16 required sections are present:
    Why This Subsystem Exists, Boundaries, Sub-Modules, Evidence Anchors,
    Internal Structure, Key Contracts, Main Flows, Dependencies (Internal
    + External), Configuration, Design Decisions, Testing, Modification
@@ -423,6 +470,14 @@ Is the full expected file set present and well-formed?
    should all be filled with actual values. List any unfilled
    placeholders.
 
+6. **Template instruction leakage.** Search all generated docs for
+   phrases that come from the templates rather than the analyzed repo.
+   Common leaks: "1 paragraph: what this system does", "2-3 sentences:",
+   "{who calls it or what triggers it}", "1 sentence", "{why it matters}".
+   These indicate the analyzing agent copied the template structure but
+   failed to fill in sections with actual content. List any leaked
+   template instructions found — each is a content gap.
+
 ---
 
 ## Dimension 7: Token Efficiency
@@ -537,9 +592,15 @@ uncertainty rather than hide it.
    source repo.
 
 5. **Confidence level distribution.** In the subsystem inventory (index.md
-   or system-overview.md), how many subsystems are marked high, medium,
-   low confidence? If all are "high" for a large repo, that's likely
-   overconfidence. A healthy distribution has some medium/low entries.
+   or system-overview.md), count how many subsystems are marked high,
+   medium, low confidence. Record the distribution.
+   - For repos with 5+ subsystems: at least 1 should be medium or low.
+     All-high is likely overconfidence.
+   - For repos with 10+ subsystems: at least 20% should be medium or
+     low. If 100% are high, treat as a gap — the analyzing agent is
+     either not using the labels or has unrealistic confidence.
+   - For small repos (2-4 subsystems): all-high is acceptable if the
+     repo is simple.
 
 ---
 
@@ -549,7 +610,28 @@ uncertainty rather than hide it.
 
 The ultimate test: can a coding agent actually use these docs to
 complete a real task? Simulate being a coding agent that just loaded
-these docs.
+these docs. Four tasks test different scenarios.
+
+**Dimension verdict:** Grade each task individually. The dimension
+verdict is the LOWEST grade across all 4 tasks — the weakest link
+determines whether agents can rely on these docs.
+
+**Navigation metrics to record per task:**
+
+- **Hop count:** How many files did you read to get from task intent
+  to "I know what files to create/modify"? Count: agent-context.md
+  (1) + routing-map.md (2, if used) + subsystem doc (3) + patterns.md
+  (4, if needed). Ideal: 2-3 hops. If >4 hops needed, the routing is
+  too indirect.
+- **Wrong-turn risk:** At any point, did the docs lead you toward the
+  wrong subsystem or wrong pattern before you corrected course? A
+  wrong turn means the Architecture map or routing-map pointed to
+  subsystem A, but the task actually belongs to subsystem B. Record
+  any wrong turns — each is a defect in the routing layer.
+- **Dead-end risk:** Did you hit a point where a referenced doc didn't
+  exist, a section was empty, or the Modification Guide had no
+  guidance for your task type? Record dead-ends — each means the
+  agent would have to fall back to raw code exploration.
 
 ### Task 1: Most Common Change
 
@@ -607,6 +689,31 @@ these docs.
    - PARTIAL: Some relevant constraints found but significant gaps
    - FAIL: No relevant constraints surfaced — agent would make the
      change blind
+
+### Task 4: Debugging / Tracing
+
+1. Simulate a debugging task: "Users report that [primary flow] is
+   returning incorrect results. I need to trace the flow and find
+   where the bug might be."
+
+2. Using the docs, determine:
+   - Which subsystem(s) does this flow pass through? (from
+     agent-context.md Architecture map, system-overview.md, or
+     routing-map.md)
+   - What is the sequence of handoffs? (from the subsystem doc's Main
+     Flows section)
+   - What are the error handling patterns? (from the subsystem doc and
+     Conventions in agent-context.md)
+   - Are there known edge cases or gotchas near this flow? (from the
+     subsystem doc's Edge Cases section)
+
+3. **Grade:**
+   - PASS: Could trace the flow from entry to exit with file references
+     at each step, and the docs surfaced relevant edge cases or gotchas
+   - PARTIAL: Could identify the subsystem but flow tracing lacked file
+     references, or edge cases section was empty/generic
+   - FAIL: Could not trace the flow, or would have looked in the wrong
+     subsystem
 
 Record detailed notes for each simulated task.
 

@@ -23,9 +23,29 @@ evaluate output produced by the tool; use `eval-output.md` for that.
 - FAIL means fundamental criteria are missing.
 - Be specific about which file and section each finding comes from.
 
+### Critical-Fail Overrides
+
+These conditions automatically cap the overall grade regardless of
+other dimension scores. Check these FIRST.
+
+**Auto-FAIL D1 (caps overall at "Needs Work" max):**
+- No dedicated agent-context rules file exists
+- No filled-out agent-context example exists
+- No line budget is specified anywhere
+
+**Auto-FAIL D4 (caps overall at "Good" max):**
+- One of the three platforms (Claude Code, Codex, Cursor) is entirely
+  missing or has no functional equivalent of the other two
+- Self-validation steps are present in only 1 of 3 platforms
+
+These overrides apply after scoring. If triggered, note in synthesis
+and adjust the final grade.
+
 ---
 
 ## Dimension 1: Primary Deliverable Specification
+
+**Weight: 3x** — this spec governs the file loaded on every agent session.
 
 The primary deliverable is `agent-context.md`. How well is it spec'd?
 
@@ -51,6 +71,8 @@ Check for:
 ---
 
 ## Dimension 2: Pattern Detection Pipeline
+
+**Weight: 2x** — patterns directly prevent convention drift at runtime.
 
 Patterns are the highest-impact output. How thorough is the pipeline?
 
@@ -78,12 +100,14 @@ Check for:
 
 ## Dimension 3: Subsystem Doc Completeness
 
+**Weight: 2x** — subsystem docs are the second file agents load per-task.
+
 Subsystem docs are the deep reference agents load per-task.
 
 Check for:
 
 - **Subsystem template** (`shared/templates/subsystem-template.md`)
-  lists all required sections. Count them — should be 15: Why It Exists,
+  lists all required sections. Count them — should be 16: Why It Exists,
   Boundaries, Sub-Modules, Evidence Anchors, Internal Structure, Key
   Contracts, Main Flows, Dependencies, Configuration, Design Decisions,
   Testing, Modification Guide, Edge Cases, Detected Patterns, Open
@@ -102,10 +126,20 @@ Check for:
   levels, minimum evidence requirements
 - **No tables** in the subsystem template (bullet-only format for
   token efficiency)
+- **Inline fallback consistency.** The deep-dive commands contain an
+  inline template used when `shared/` is not installed. Check that
+  the inline template in `claude-code/commands/analyze-deep-dive.md`
+  and `codex/prompts/2-deep-dive.md` matches the standalone
+  `shared/templates/subsystem-template.md` in format (both should use
+  bullets, not tables). If the inline version uses tables while the
+  standalone uses bullets, the fallback path produces lower-quality
+  output.
 
 ---
 
 ## Dimension 4: Cross-Platform Parity
+
+**Weight: 2x** — inconsistency across platforms means some users get worse output.
 
 Three platforms must have equivalent capability.
 
@@ -130,9 +164,17 @@ Check for:
 Cross-check: pick one specific feature (e.g., the smoke test) and
 verify it appears with equivalent detail in all 3 platform files.
 
+Secondary cross-check: compare the inline subsystem template in the
+Claude Code deep-dive command against the Codex deep-dive prompt. Do
+they use the same format (tables vs bullets)? Do they have the same
+sections? Format divergence between platforms means agents on different
+platforms produce structurally different subsystem docs.
+
 ---
 
 ## Dimension 5: Behavioral Specification
+
+**Weight: 1x**
 
 Is the tool's behavior fully defined in one place?
 
@@ -155,6 +197,8 @@ Check for:
 ---
 
 ## Dimension 6: Self-Validation and Quality Gates
+
+**Weight: 2x** — without self-validation, quality depends entirely on the LLM's judgment.
 
 Does the framework verify its own output?
 
@@ -179,6 +223,8 @@ Check for:
 ---
 
 ## Dimension 7: Shared Reference Quality
+
+**Weight: 1x**
 
 The references govern how well the analyzing agent explores any
 codebase.
@@ -208,6 +254,8 @@ Check for:
 
 ## Dimension 8: Output Schema and Wiring
 
+**Weight: 1x**
+
 The last mile — connecting generated docs to the coding agent.
 
 Check for:
@@ -235,28 +283,40 @@ After evaluating all 8 dimensions, produce:
 
 ### Score Card
 
-| Dimension | Verdict | Key Finding |
-|-----------|---------|-------------|
-| D1: Primary Deliverable | | |
-| D2: Pattern Pipeline | | |
-| D3: Subsystem Docs | | |
-| D4: Cross-Platform Parity | | |
-| D5: Behavioral Spec | | |
-| D6: Self-Validation | | |
-| D7: Shared References | | |
-| D8: Schema and Wiring | | |
+| Verdict | Score |
+|---------|-------|
+| PASS | 2 |
+| PARTIAL | 1 |
+| FAIL | 0 |
 
-### Aggregate
+| Dimension | Weight | Verdict | Weighted Score | Key Finding |
+|-----------|--------|---------|----------------|-------------|
+| D1: Primary Deliverable | 3x | | /6 | |
+| D2: Pattern Pipeline | 2x | | /4 | |
+| D3: Subsystem Docs | 2x | | /4 | |
+| D4: Cross-Platform Parity | 2x | | /4 | |
+| D5: Behavioral Spec | 1x | | /2 | |
+| D6: Self-Validation | 2x | | /4 | |
+| D7: Shared References | 1x | | /2 | |
+| D8: Schema and Wiring | 1x | | /2 | |
+| **Total** | | | **/28** | |
 
-- PASS count: {N}/8
-- PARTIAL count: {N}/8
-- FAIL count: {N}/8
+### Grade Bands
+
+| Score | Grade | Interpretation |
+|-------|-------|----------------|
+| 24-28 | Excellent | Framework is production-ready |
+| 18-23 | Good | Usable, fix identified gaps |
+| 12-17 | Needs Work | Significant gaps reduce output quality |
+| <12 | Fundamental Issues | Major redesign needed |
 
 ### Prioritized Gaps
 
-List every gap found, ordered by impact on coding agent efficiency:
+List every gap found. Categorize as **critical** (would cause agents
+to produce wrong output), **important** (reduces output quality), or
+**minor** (cosmetic or edge-case):
 
-1. {gap} — {which dimension} — {specific file and section} — {suggested fix}
+1. {gap} — {severity} — {which dimension} — {specific file and section} — {suggested fix}
 2. ...
 
 ### Strengths
