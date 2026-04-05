@@ -84,6 +84,9 @@ Internal steps:
 4. Map subsystems (apply mapping rubric, flag recursion candidates)
 5. Detect preliminary patterns (note repetitive file clusters)
 6. Present mandatory checkpoint (use checkpoint template, 8 sections)
+6b. Self-validate checkpoint (see validation-rules.md Phase 1 checks)
+6c. For monorepos/very-large repos: present scope selection table
+    (see scope-selection-rules.md). Record selected_scope in state.
 7. Write `agent-docs/.analysis-state.md` and
    `agent-docs/system-overview.md` after user confirms
 
@@ -99,6 +102,7 @@ Internal steps:
 4. Analyze: boundaries, structure, contracts, flows, dependencies,
    config, design decisions, testing, edge cases, patterns
 5. Write `agent-docs/subsystems/{name}.md` (and children if recursive)
+5b. Self-validate subsystem doc (see validation-rules.md Phase 2 checks)
 6. Update analysis state
 
 ### Phase 3: Synthesize
@@ -109,9 +113,11 @@ then remaining documentation.
 Internal steps:
 1. Read all existing agent-docs/
 2. Generate `agent-docs/agent-context.md` (primary output)
+2b. Self-validate agent-context.md (see validation-rules.md Phase 3)
 3. Generate `agent-docs/patterns.md` (semi-automated: propose, confirm)
 4. Generate remaining docs (agent-brief, index, decisions, glossary,
    uncertainties, flow docs, agent-protocol)
+4b. Run quality smoke test (see validation-rules.md Phase 3 smoke test)
 5. Report completion with agent integration instructions
 
 ## State Persistence
@@ -126,6 +132,8 @@ subsystems_pending: [{list}]
 subsystems_completed: [{list}]
 recursion_candidates: [{list}]
 preliminary_patterns: [{list}]
+selected_scope: [{list, if monorepo/very-large}]
+scope_selection_presented: {true/false, if applicable}
 ```
 
 Each phase reads this file before proceeding. Phase 2 updates it after
@@ -316,5 +324,7 @@ During analysis, load these files from the shared resources directory:
 - `references/checkpoint-template.md` — mandatory checkpoint format
 - `references/agent-context-rules.md` — agent-context generation rules
 - `references/pattern-detection-guide.md` — pattern detection method
+- `references/validation-rules.md` — self-check criteria per phase
+- `references/scope-selection-rules.md` — monorepo scope selection
 - `templates/` — output document structures
 - `examples/` — quality calibration targets

@@ -24,6 +24,8 @@ If that directory exists, load these files on demand during analysis:
 - `references/scale-and-scope.md` — reading depth and stop conditions
 - `references/subsystem-mapping-rubric.md` — subsystem identification
 - `references/checkpoint-template.md` — checkpoint format
+- `references/validation-rules.md` — self-check criteria
+- `references/scope-selection-rules.md` — monorepo scope selection
 - `examples/checkpoint-example.md` — quality calibration target
 
 If the directory does not exist, use the inline fallback guidance
@@ -218,6 +220,42 @@ Order from most central to least central.
 #### 8. Proposed Documentation Plan
 List exact files to generate in `agent-docs/`.
 
+### Step 6b: Self-Validate Checkpoint
+
+Before presenting to the user, verify your checkpoint output:
+
+If `~/.claude/codebase-analysis/references/validation-rules.md` exists,
+load it and run the Phase 1 checks. Otherwise use these inline checks:
+
+1. Checkpoint has all 8 sections (Classification through Doc Plan)
+2. Subsystem table has all required columns (Subsystem, Path, Role,
+   Responsibility, Evidence Anchors, Dependencies, Confidence, Recursion)
+3. Every subsystem row has >= 2 evidence anchors (concrete file paths)
+
+If any check fails, fix the checkpoint content before presenting it.
+
+### Step 6c: Scope Selection (monorepos and very large repos only)
+
+If the repo is a monorepo, hybrid, very large (2000+ files), or has
+10+ candidate subsystems, present a scope selection table after the
+checkpoint:
+
+> **Scope Selection — which areas should Phase 2 deep-dive?**
+>
+> | # | Package / App | Path | Est. Files | Centrality | Recommended |
+> |---|---------------|------|------------|------------|-------------|
+> | 1 | {name} | `{path}` | ~{N} | core/supporting/peripheral | yes/no |
+>
+> Centrality: **core** (central to primary function), **supporting**
+> (used by core), **peripheral** (optional, tooling, rarely changed).
+> Recommended = "yes" for core and supporting.
+>
+> **Tell me which numbers to include in the deep-dive scope.**
+> You can expand scope later by re-running Phase 1.
+
+Record the user's selection for inclusion in `.analysis-state.md`.
+Skip this step for small/medium repos.
+
 ### Step 7: Ask for Confirmation
 
 End the checkpoint with:
@@ -244,6 +282,9 @@ recursion_candidates:
   - {subsystem-name}
 preliminary_patterns:
   - {pattern-name}: {category} ({example file})
+selected_scope:          # only if scope selection was presented
+  - {subsystem-name}
+scope_selection_presented: true/false
 ---
 
 {Full checkpoint content from Step 6}

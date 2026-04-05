@@ -17,6 +17,12 @@ Match `{SUBSYSTEM_NAME}` against the subsystem map.
 If `agent-docs/.analysis-state.md` does not exist:
 > **Phase 1 has not been run.** Run the Phase 1 prompt first.
 
+If `selected_scope` is present in the analysis state and the target
+subsystem is NOT in the selected scope, warn:
+
+> **{subsystem} is not in the selected scope.** Selected: {list}.
+> To add it, re-run Phase 1 to update scope, or say "analyze anyway."
+
 ## Progress
 
 | Phase | Status |
@@ -192,6 +198,19 @@ Write to `agent-docs/subsystems/{subsystem-name}.md`:
 
 ## Coverage Notes
 ```
+
+### 4b. Self-Validate Subsystem Document
+
+Before updating state, verify the document you just wrote:
+
+1. Document has all required sections (check for: Modification Guide,
+   Evidence Anchors, Main Flows, Coverage Notes)
+2. Modification Guide is non-empty with invariants and step-by-step
+3. At least one flow traced with file references
+4. Evidence Anchors has >= 2 file:line references
+5. Coverage Notes states what was read/sampled/skipped
+
+If any check fails, fix the document before proceeding.
 
 ### 5. Update State
 

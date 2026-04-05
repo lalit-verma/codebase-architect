@@ -92,6 +92,21 @@ file coding agents load at session start.
 - `agent-docs/uncertainties.md` — check before assuming
 ```
 
+### 1b. Self-Validate agent-context.md
+
+Before proceeding to patterns.md, verify:
+
+1. Count lines — must be under 120
+2. No tables (no `|` characters outside code blocks)
+3. No confidence labels ("Confirmed:", "Inference:", etc.)
+4. All 7 sections present: What this repo is, Architecture map, Key
+   patterns, Conventions, Do NOT, Key contracts, For deeper context
+5. Every Architecture map entry has a file path in backticks
+6. Every Key patterns entry has numbered steps with file paths
+7. Every Key contracts entry has a file:line reference
+
+If any check fails, fix agent-context.md before proceeding.
+
 ### 2. Write `agent-docs/patterns.md`
 
 Consolidate all patterns from Phase 2. **Present to user first:**
@@ -137,6 +152,25 @@ Generate copy-paste-ready wiring instructions for Claude Code (`CLAUDE.md`),
 Codex (`AGENTS.md`), and Cursor (`.cursor/rules/architecture-context.mdc`).
 Each section should include the 5-step loading protocol with the quote
 requirement for patterns.
+
+### 9b. Quality Smoke Test
+
+Read `agent-docs/agent-context.md` and answer these 5 questions using
+ONLY that file's content:
+
+1. "Where would I create a new [most common entity type]?"
+   PASS: answer yields a concrete file path from Key patterns
+2. "What pattern should I follow for [most common entity type]?"
+   PASS: Key patterns has numbered steps for this entity type
+3. "What should I NOT do in this codebase?"
+   PASS: Do NOT section has >= 3 specific entries
+4. "Which subsystem handles [primary flow from Phase 1]?"
+   PASS: Architecture map clearly maps to this flow
+5. "What are the key interfaces/contracts?"
+   PASS: Key contracts has >= 2 entries with file:line refs
+
+If any question fails, fix agent-context.md and re-check before
+proceeding.
 
 ### 10. Update State
 

@@ -149,6 +149,32 @@ Present in chat:
 #### 8. Proposed Documentation Plan
 List exact files for `agent-docs/`.
 
+### 7b. Self-Validate Checkpoint
+
+Before presenting to the user, verify:
+
+1. Checkpoint has all 8 sections (Classification through Doc Plan)
+2. Subsystem table has all required columns (Subsystem, Path, Role,
+   Responsibility, Evidence Anchors, Dependencies, Confidence, Recursion)
+3. Every subsystem row has >= 2 evidence anchors (concrete file paths)
+
+If any check fails, fix the checkpoint before presenting it.
+
+### 7c. Scope Selection (monorepos and very large repos only)
+
+If the repo is a monorepo, hybrid, very large (2000+ files), or has
+10+ candidate subsystems, present after the checkpoint:
+
+> **Scope Selection — which areas should Phase 2 deep-dive?**
+>
+> | # | Package / App | Path | Est. Files | Centrality | Recommended |
+> |---|---------------|------|------------|------------|-------------|
+> | 1 | {name} | `{path}` | ~{N} | core/supporting/peripheral | yes/no |
+>
+> **Tell me which numbers to include.** You can expand scope later.
+
+Record user's selection for `.analysis-state.md`. Skip for small/medium.
+
 ### 8. Ask for Confirmation
 
 > **Does this subsystem map and scope look right? Should I write
@@ -164,6 +190,8 @@ List exact files for `agent-docs/`.
 - `subsystems_completed: []`
 - `recursion_candidates: [list]`
 - `preliminary_patterns: [list]`
+- `selected_scope: [list]` (only if scope selection was presented)
+- `scope_selection_presented: true/false`
 
 **`agent-docs/system-overview.md`** — Purpose, boundaries, shape,
 subsystems, flows, state/config, design observations.

@@ -110,12 +110,19 @@ reports the exact line to add.
 
 ## Quality Check
 
+These checks are a quick reference. The full validation criteria
+(including the quality smoke test) are in `validation-rules.md`.
+
 Before finalizing, verify:
 - [ ] Under 120 lines?
 - [ ] Every line contains a file path or actionable instruction?
 - [ ] No architectural prose or explanations?
 - [ ] No tables?
 - [ ] No confidence labels?
+- [ ] All 7 required sections present?
 - [ ] An agent reading only this file could navigate the repo?
 - [ ] An agent reading only this file would follow correct patterns?
 - [ ] An agent reading only this file would know what NOT to do?
+
+After all docs are generated, run the quality smoke test from
+`validation-rules.md` before reporting completion.

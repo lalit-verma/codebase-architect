@@ -15,6 +15,7 @@ If available, load on demand:
 - `references/scale-and-scope.md` — reading depth and recursion thresholds
 - `references/subsystem-mapping-rubric.md` — for recursive decomposition
 - `references/pattern-detection-guide.md` — pattern identification
+- `references/validation-rules.md` — self-check criteria
 - `templates/subsystem-template.md` — output structure for subsystems
 - `templates/sub-module-template.md` — lighter output structure for sub-modules
 
@@ -40,6 +41,13 @@ Then stop.
 
 If `$ARGUMENTS` does not match any subsystem in the map, list the
 available subsystems and ask the user to clarify.
+
+If `selected_scope` is present in the analysis state and the target
+subsystem is NOT in the selected scope, warn the user:
+
+> **{subsystem} is not in the selected scope.** Selected subsystems:
+> {list}. To add it, re-run `/user:analyze-discover` to update scope.
+> Or say "analyze anyway" to proceed.
 
 ## Progress
 
@@ -303,6 +311,23 @@ sub-module template (`sub-module-template.md`). Sub-module docs
 drop standalone Design Decisions and Configuration sections (those
 are captured at the parent level) and target ~60% the length of a
 full subsystem doc.
+
+### Step 4b: Self-Validate Subsystem Document
+
+Before updating state, verify the document you just wrote:
+
+If `~/.claude/codebase-analysis/references/validation-rules.md` exists,
+load it and run the Phase 2 checks. Otherwise use these inline checks:
+
+1. Document has all required sections (check for: Modification Guide,
+   Evidence Anchors, Main Flows, Coverage Notes — the most commonly
+   missed)
+2. Modification Guide is non-empty with invariants and step-by-step
+3. At least one flow traced with file references
+4. Evidence Anchors has >= 2 file:line references
+5. Coverage Notes states what was read/sampled/skipped
+
+If any check fails, fix the document before proceeding.
 
 ### Step 5: Update Analysis State
 

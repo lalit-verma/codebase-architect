@@ -19,6 +19,7 @@ Look for shared reference files at `~/.claude/codebase-analysis/`.
 If available, load on demand:
 - `references/agent-context-rules.md` — agent-context generation rules
 - `references/pattern-detection-guide.md` — pattern consolidation
+- `references/validation-rules.md` — self-check criteria and smoke test
 - `templates/` — all output templates
 - `examples/agent-context-example.md` — quality calibration target
 
@@ -140,6 +141,25 @@ use it as a quality calibration target.
 | Do NOT | Edge cases, gotchas, anti-patterns from subsystem docs |
 | Key contracts | Contracts and types from subsystem docs |
 | For deeper context | Fixed pointers to other agent-docs/ files |
+
+### Step 1b: Self-Validate agent-context.md
+
+Before proceeding to patterns.md, verify the file you just generated:
+
+If `~/.claude/codebase-analysis/references/validation-rules.md` exists,
+load it and run the Phase 3 self-validation checks. Otherwise:
+
+1. Count lines — must be under 120
+2. Scan for `|` characters outside code blocks — no tables allowed
+3. Scan for "Confirmed:", "Inference:", "UNCERTAIN:", "NEEDS
+   CLARIFICATION:" — none allowed
+4. Verify all 7 sections present: What this repo is, Architecture map,
+   Key patterns, Conventions, Do NOT, Key contracts, For deeper context
+5. Every Architecture map entry has a file path in backticks
+6. Every Key patterns entry has numbered steps with file paths
+7. Every Key contracts entry has a file:line reference
+
+If any check fails, fix agent-context.md before proceeding.
 
 ### Step 2: Generate `agent-docs/patterns.md`
 
@@ -401,6 +421,27 @@ Add this to your repo's `AGENTS.md`:
 Create `.cursor/rules/architecture-context.mdc`:
 > [same instructions as a Cursor rule with alwaysApply: true]
 ```
+
+### Step 9b: Quality Smoke Test
+
+Read `agent-docs/agent-context.md` and attempt to answer these 5
+questions using ONLY that file's content. Replace bracketed placeholders
+with actual values from the analyzed repository.
+
+1. "Where would I create a new [most common entity type]?"
+   PASS: answer yields a concrete file path from Key patterns
+2. "What pattern should I follow for [most common entity type]?"
+   PASS: Key patterns has numbered steps for this entity type
+3. "What should I NOT do in this codebase?"
+   PASS: Do NOT section has >= 3 specific entries
+4. "Which subsystem handles [primary flow from Phase 1]?"
+   PASS: Architecture map clearly maps to this flow
+5. "What are the key interfaces/contracts?"
+   PASS: Key contracts has >= 2 entries with file:line refs
+
+If any question cannot be answered from agent-context.md alone, the
+doc has a gap. Fix agent-context.md and re-check the failing question
+before proceeding.
 
 ### Step 10: Update Analysis State
 

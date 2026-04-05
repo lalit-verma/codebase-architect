@@ -84,6 +84,26 @@ Also state:
 - Unresolved limitations that will remain
 - Subsystems flagged for recursive decomposition
 
+## 8b. Scope Selection (monorepos and very large repos only)
+
+If this is a monorepo, hybrid, very large (2000+ files), or has 10+
+candidate subsystems, present a scope selection table:
+
+> **Scope Selection — which areas should Phase 2 deep-dive?**
+>
+> | # | Package / App | Path | Est. Files | Centrality | Recommended |
+> |---|---------------|------|------------|------------|-------------|
+> | 1 | `{name}` | `{path}` | ~{N} | `{core/supporting/peripheral}` | `{yes/no}` |
+>
+> Centrality: **core** (central to primary function), **supporting**
+> (used by core, not main surface), **peripheral** (optional, tooling).
+>
+> **Tell me which numbers to include in Phase 2 scope.** You can
+> expand scope later by re-running Phase 1.
+
+Skip this section for small/medium repos where all subsystems will be
+analyzed.
+
 ## 9. Required Closing Question
 
 End with a direct confirmation request:
