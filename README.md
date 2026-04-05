@@ -245,6 +245,26 @@ tool reads existing state and augments rather than overwrites.
 `agent-context.md` and `patterns.md` are regenerated entirely on re-run
 because stale context is worse than no context.
 
+## Evaluation
+
+Two evaluation rubrics in `eval/` let you grade the tool and its output:
+
+- **`eval/eval-toolkit.md`** — Evaluates the framework itself (prompts,
+  templates, references, cross-platform consistency). 8 dimensions
+  scored PASS/PARTIAL/FAIL. Use when evolving the framework or comparing
+  against alternatives.
+
+- **`eval/eval-output.md`** — Evaluates the `agent-docs/` produced
+  after running the tool on a real repo. 10 weighted dimensions with
+  spot-checks against the source repo, cross-file consistency checks,
+  and simulated task tests. Scored out of 32 with grade bands
+  (Excellent/Good/Needs Work/Significant Gaps). Run this after every
+  analysis to verify output quality.
+
+To run either eval: paste the prompt into a coding agent, point it at
+the target (framework files for toolkit eval, `agent-docs/` + source
+repo for output eval), and it produces a scored report with evidence.
+
 ## Design Principles
 
 - **Agent-first.** Primary consumer is a coding agent, not a human.
@@ -302,4 +322,7 @@ codex/
     3-synthesize.md
 cursor/
   SKILL.md                          Cursor skill with auto-trigger
+eval/
+  eval-toolkit.md                   evaluate the framework itself
+  eval-output.md                    evaluate agent-docs/ output quality
 ```
