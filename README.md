@@ -259,47 +259,47 @@ because stale context is worse than no context.
 ## File Structure
 
 ```
-merged-claude-framework/
-  README.md                         (this file)
-  PLAN.md                           (implementation plan)
-  shared/
-    protocol.md                     canonical behavioral spec
-    docs-schema.md                  output directory structure
-    references/                     operational playbooks
-      ecosystem-playbook.md         per-language exploration
-      scale-and-scope.md            reading depth, recursion thresholds
-      subsystem-mapping-rubric.md   subsystem identification
-      checkpoint-template.md        mandatory checkpoint format
-      agent-context-rules.md        agent-context generation rules
-      pattern-detection-guide.md    pattern detection method
-    templates/                      output document templates
-      agent-context-template.md
-      agent-protocol-template.md
-      patterns-template.md
-      routing-map-template.md
-      subsystem-template.md
-      sub-module-template.md
-      index-template.md
-      agent-brief-template.md
-      system-overview-template.md
-      flow-template.md
-      decisions-template.md
-      glossary-template.md
-      uncertainties-template.md
-    examples/                       quality calibration
-      checkpoint-example.md
-      agent-context-example.md
-  claude-code/
-    commands/                       Claude Code slash commands
-      analyze-discover.md
-      analyze-deep-dive.md
-      analyze-synthesize.md
-  codex/
-    AGENTS.md                       behavioral contract
-    prompts/                        paste-able prompts
-      1-discover.md
-      2-deep-dive.md
-      3-synthesize.md
-  cursor/
-    SKILL.md                        Cursor skill with auto-trigger
+README.md                           (this file)
+shared/
+  protocol.md                       canonical behavioral spec
+  docs-schema.md                    output directory structure
+  references/                       operational playbooks
+    ecosystem-playbook.md           per-language exploration
+    scale-and-scope.md              reading depth, recursion thresholds
+    subsystem-mapping-rubric.md     subsystem identification
+    checkpoint-template.md          mandatory checkpoint format
+    agent-context-rules.md          agent-context generation rules
+    pattern-detection-guide.md      pattern detection method
+    validation-rules.md             self-check criteria per phase
+    scope-selection-rules.md        monorepo scope selection
+  templates/                        output document templates
+    agent-context-template.md
+    agent-protocol-template.md
+    patterns-template.md
+    routing-map-template.md
+    subsystem-template.md
+    sub-module-template.md
+    index-template.md
+    agent-brief-template.md
+    system-overview-template.md
+    flow-template.md
+    decisions-template.md
+    glossary-template.md
+    uncertainties-template.md
+  examples/                         quality calibration
+    checkpoint-example.md
+    agent-context-example.md
+claude-code/
+  commands/                         Claude Code slash commands
+    analyze-discover.md
+    analyze-deep-dive.md
+    analyze-synthesize.md
+codex/
+  AGENTS.md                         behavioral contract
+  prompts/                          paste-able prompts
+    1-discover.md
+    2-deep-dive.md
+    3-synthesize.md
+cursor/
+  SKILL.md                          Cursor skill with auto-trigger
 ```
