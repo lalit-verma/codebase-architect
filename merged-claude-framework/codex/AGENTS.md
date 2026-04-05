@@ -31,6 +31,7 @@ agent-docs/
   agent-context.md           # PRIMARY: compact agent-loadable context
   patterns.md                # detected code patterns and conventions
   agent-brief.md             # compact architecture for agents
+  agent-protocol.md          # wiring instructions for agents
   index.md                   # navigation hub
   system-overview.md         # top-level architecture
   decisions.md               # key trade-offs
@@ -38,7 +39,7 @@ agent-docs/
   uncertainties.md           # unresolved questions
   subsystems/
     {subsystem}.md           # one per subsystem
-    {subsystem}/             # recursive sub-subsystem docs (if needed)
+    {subsystem}/             # recursive sub-module docs (if needed)
       {child}.md
   flows/
     {flow}.md                # cross-cutting flows (if warranted)
@@ -74,10 +75,9 @@ generated code directories (unless unusually central).
 
 ## Recursive Decomposition
 
-Large subsystems are decomposed into sub-subsystem docs:
+Large subsystems are decomposed into sub-module docs:
 - 50+ files or 3+ internal modules with own contracts → propose depth 2
-- 30+ files at depth 2 → propose depth 3
-- Depth 4: hard stop, summarize
+- Depth 3: hard stop, summarize remaining complexity
 - Many-files-one-pattern → document the pattern, don't decompose
 
 ## Pattern Detection

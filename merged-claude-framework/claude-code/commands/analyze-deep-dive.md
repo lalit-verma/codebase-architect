@@ -15,7 +15,8 @@ If available, load on demand:
 - `references/scale-and-scope.md` — reading depth and recursion thresholds
 - `references/subsystem-mapping-rubric.md` — for recursive decomposition
 - `references/pattern-detection-guide.md` — pattern identification
-- `templates/subsystem-template.md` — output structure
+- `templates/subsystem-template.md` — output structure for subsystems
+- `templates/sub-module-template.md` — lighter output structure for sub-modules
 
 ---
 
@@ -69,6 +70,34 @@ agents use to navigate and work within this part of the codebase.
 - Labels: `Confirmed:` / `Inference:` / `UNCERTAIN:` /
   `NEEDS CLARIFICATION:`
 
+## Anti-Patterns
+
+Do not:
+
+- confuse directory structure with architectural boundaries
+- claim runtime behavior that static evidence does not support
+- produce boilerplate prose that adds no insight
+- skip the Modification Guide — it is the most agent-valuable section
+- decompose a subsystem that is large but uniform (document the pattern
+  instead)
+
+## Quality Bar
+
+A subsystem doc is good enough when a coding agent reading it can:
+
+- understand what the subsystem does and where it fits
+- find the right files to modify for a given task
+- follow the correct patterns when adding new code
+- avoid breaking invariants or implicit contracts
+- know what areas are uncertain and need human verification
+
+A subsystem doc is not good enough if it:
+
+- reads like boilerplate architecture prose
+- hides uncertainty or overstates confidence
+- confuses code organization with architectural responsibility
+- lacks a Modification Guide
+
 ---
 
 ## Procedure
@@ -94,24 +123,24 @@ Check whether this subsystem should be decomposed:
 **If triggered:**
 Present the decomposition proposal in chat:
 
-> This subsystem is large enough to decompose into sub-subsystems:
+> This subsystem is large enough to decompose into sub-modules:
 > - **{sub-1}** (`{path}`): {responsibility} ({N} files)
 > - **{sub-2}** (`{path}`): {responsibility} ({N} files)
 > - **{sub-3}** (`{path}`): {responsibility} ({N} files)
 >
-> I'll write a parent overview doc plus individual sub-subsystem docs.
+> I'll write a parent overview doc plus individual sub-module docs.
 > **Confirm? Or should I analyze as a single unit?**
 
 Wait for user confirmation before proceeding.
 
 **If confirmed for recursion:**
 - Write parent doc at `agent-docs/subsystems/{name}.md` covering:
-  overview, internal map, cross-cutting concerns, how sub-subsystems
+  overview, internal map, cross-cutting concerns, how sub-modules
   connect
-- Deep-dive each sub-subsystem, writing to
+- Deep-dive each sub-module, writing to
   `agent-docs/subsystems/{name}/{child}.md`
 - Apply the same analysis procedure to each child
-- Recursion applies up to depth 4. At depth 4: summarize, don't
+- Recursion applies up to depth 3. At depth 3: summarize, don't
   decompose further.
 
 **If NOT triggered or user declines:**
@@ -125,7 +154,7 @@ Proceed with a single flat document.
 
 ### Step 3: Analyze
 
-Investigate these dimensions for the subsystem (or each sub-subsystem
+Investigate these dimensions for the subsystem (or each sub-module
 if recursive):
 
 **a) Boundaries & Role**
@@ -174,7 +203,14 @@ if recursive):
 - Known limitations, tech debt (TODO comments, workarounds)
 - Behavior that would surprise a new contributor
 
-**j) Pattern Detection**
+**j) Modification Guide** (most agent-valuable section)
+- What invariants must be preserved when modifying this subsystem?
+- For the most common change type: what is the step-by-step pattern?
+  Which files get touched? Which existing file is the best template?
+- Which files are tightly coupled and usually modified together?
+- What would a coding agent likely get wrong on the first attempt?
+
+**k) Pattern Detection**
 - Identify repetitive file structures within this subsystem
 - For each pattern: name, category, example file (cleanest instance),
   file list, registration/wiring points
@@ -237,6 +273,15 @@ use its structure. Otherwise use this structure:
 ## Testing
 - Coverage mode, test files, patterns, fixtures, gaps
 
+## Modification Guide
+- **Invariants to preserve:** {list}
+- **To add a new {common change type}:**
+  1. {step}
+  2. {step}
+  - Best template to copy from: `{file}`
+- **Files commonly touched together:** {list}
+- **Gotchas:** {list}
+
 ## Edge Cases and Gotchas
 - {items}
 
@@ -253,7 +298,11 @@ use its structure. Otherwise use this structure:
 ```
 
 If recursion was applied, also write child docs at
-`agent-docs/subsystems/{name}/{child}.md` using the same structure.
+`agent-docs/subsystems/{name}/{child}.md` using the lighter
+sub-module template (`sub-module-template.md`). Sub-module docs
+drop standalone Design Decisions and Configuration sections (those
+are captured at the parent level) and target ~60% the length of a
+full subsystem doc.
 
 ### Step 5: Update Analysis State
 
@@ -261,7 +310,7 @@ Update `agent-docs/.analysis-state.md`:
 - Move this subsystem from `subsystems_pending` to
   `subsystems_completed`
 - Record detected patterns
-- If recursion was applied, record the sub-subsystem structure
+- If recursion was applied, record the sub-module structure
 
 ### Step 6: Report Next Steps
 

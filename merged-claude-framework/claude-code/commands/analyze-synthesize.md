@@ -31,7 +31,7 @@ Read these files before doing anything else:
 1. `agent-docs/.analysis-state.md` — analysis state
 2. `agent-docs/system-overview.md` — top-level architecture
 3. Every file in `agent-docs/subsystems/` — all deep-dive documents
-   (including any recursive sub-subsystem docs)
+   (including any recursive sub-module docs)
 
 If the analysis state shows subsystems still pending, warn the user:
 
@@ -373,13 +373,42 @@ something not covered in subsystem docs. Write to
 - `Inference:` {rationale}
 ```
 
-### Step 9: Update Analysis State
+### Step 9: Generate `agent-docs/agent-protocol.md`
+
+Generate copy-paste-ready wiring instructions for all 3 platforms.
+
+If `~/.claude/codebase-analysis/templates/agent-protocol-template.md`
+exists, use its structure. Otherwise use this format:
+
+```markdown
+# Agent Protocol — How to Use These Docs
+
+## For Claude Code
+Add this to your repo's `CLAUDE.md`:
+> Before starting any coding task:
+> 1. Read `agent-docs/agent-context.md` for architecture context.
+> 2. Read the relevant `agent-docs/subsystems/{name}.md`.
+> 3. Read `agent-docs/patterns.md` to match conventions. Quote the
+>    specific pattern you are following.
+> 4. If making structural changes, read `agent-docs/decisions.md`.
+> 5. If near uncertain areas, check `agent-docs/uncertainties.md`.
+
+## For Codex
+Add this to your repo's `AGENTS.md`:
+> [same instructions adapted for Codex]
+
+## For Cursor
+Create `.cursor/rules/architecture-context.mdc`:
+> [same instructions as a Cursor rule with alwaysApply: true]
+```
+
+### Step 10: Update Analysis State
 
 Update `agent-docs/.analysis-state.md`:
 - Set `phase_completed: 3`
 - Record all generated files
 
-### Step 10: Report Completion
+### Step 11: Report Completion
 
 Tell the user:
 
@@ -394,15 +423,17 @@ Tell the user:
 > - `agent-docs/decisions.md` — architectural trade-offs
 > - `agent-docs/glossary.md` — project terms
 > - `agent-docs/uncertainties.md` — unresolved questions
+> - `agent-docs/agent-protocol.md` — wiring instructions for agents
 > {- `agent-docs/flows/{name}.md` — if generated}
->
-> ---
 >
 > ---
 >
 > **IMPORTANT: Wire agent-docs into your coding agent.**
 >
-> Add the following block to your agent config file (`CLAUDE.md` for
+> Follow the instructions in `agent-docs/agent-protocol.md` — it has
+> copy-paste-ready snippets for Claude Code, Codex, and Cursor.
+>
+> Or add the following block to your agent config file (`CLAUDE.md` for
 > Claude Code, `.cursorrules` for Cursor, `AGENTS.md` for Codex).
 > Create the file if it doesn't exist.
 >
@@ -421,12 +452,13 @@ Tell the user:
 > ### Step 2: Load task-relevant subsystem docs
 > Identify which subsystem(s) your task touches based on the
 > architecture map. Read the corresponding
-> `agent-docs/subsystems/{name}.md`. If sub-subsystem docs exist
+> `agent-docs/subsystems/{name}.md`. If sub-module docs exist
 > in a subdirectory, read those too.
 >
 > ### Step 3: Check patterns before creating new files
 > Before creating any new file, read `agent-docs/patterns.md` and
-> follow the established pattern for that file type.
+> follow the established pattern for that file type. Quote the
+> specific pattern you are following.
 >
 > ### Step 4: Check constraints before architectural changes
 > If changing subsystem interactions, dependencies, or contracts —
@@ -434,9 +466,9 @@ Tell the user:
 > `agent-docs/uncertainties.md` first.
 >
 > ### Step 5: Confirm your understanding
-> Before writing code, briefly state which subsystem(s) you are
-> working in, which patterns you will follow, and any constraints
-> that apply. Then proceed.
+> Before writing code, state which subsystem(s) you are working in,
+> which patterns you will follow (quote the specific pattern from
+> patterns.md), and any constraints that apply. Then proceed.
 > ```
 >
 > ---

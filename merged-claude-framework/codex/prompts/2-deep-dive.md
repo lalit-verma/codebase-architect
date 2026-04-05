@@ -43,6 +43,25 @@ within this part of the codebase.
 - Labels: `Confirmed:` / `Inference:` / `UNCERTAIN:` /
   `NEEDS CLARIFICATION:`
 
+## Anti-Patterns
+
+Do not:
+
+- confuse directory structure with architectural boundaries
+- claim runtime behavior that static evidence does not support
+- produce boilerplate prose that adds no insight
+- skip the Modification Guide — it is the most agent-valuable section
+- decompose a subsystem that is large but uniform (document the pattern)
+
+## Quality Bar
+
+A subsystem doc is good enough when a coding agent reading it can:
+- understand what the subsystem does and where it fits
+- find the right files to modify for a given task
+- follow the correct patterns when adding new code
+- avoid breaking invariants or implicit contracts
+- know what areas are uncertain
+
 ---
 
 ## Procedure
@@ -64,7 +83,9 @@ If subsystem has 50+ files OR 3+ internal modules with own contracts:
 > Confirm? Or analyze as single unit?
 
 If confirmed: write parent doc + child docs at
-`agent-docs/subsystems/{name}/{child}.md`. Max depth 4.
+`agent-docs/subsystems/{name}/{child}.md` using a lighter sub-module
+template (drop Design Decisions and Configuration sections, target
+~60% the length of a full subsystem doc). Max depth 3.
 
 When NOT to decompose: many-files-one-pattern (document pattern instead),
 generated files, single responsibility despite many files.
@@ -95,6 +116,12 @@ assessment
 
 **Edge Cases & Gotchas:** implicit contracts, race conditions, known
 limitations, surprises for new contributors
+
+**Modification Guide:** (most agent-valuable section)
+- Invariants that must be preserved when modifying this subsystem
+- Step-by-step pattern for the most common change type
+- Files commonly touched together
+- What a coding agent would likely get wrong on the first attempt
 
 **Pattern Detection:** identify repetitive file structures. For each:
 name, category, example file (cleanest), file list, registration points.
@@ -146,6 +173,15 @@ Write to `agent-docs/subsystems/{subsystem-name}.md`:
 ### {Decision}
 
 ## Testing
+
+## Modification Guide
+- **Invariants to preserve:** {list}
+- **To add a new {common change type}:**
+  1. {step}
+  2. {step}
+  - Best template to copy from: `{file}`
+- **Files commonly touched together:** {list}
+- **Gotchas:** {list}
 
 ## Edge Cases and Gotchas
 

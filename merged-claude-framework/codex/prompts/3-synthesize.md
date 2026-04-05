@@ -131,11 +131,18 @@ All `UNCERTAIN:` and `NEEDS CLARIFICATION:` items consolidated.
 Only cross-cutting flows spanning multiple subsystems. Write to
 `agent-docs/flows/{name}.md`. Skip for simple repos.
 
-### 9. Update State
+### 9. Write `agent-docs/agent-protocol.md`
+
+Generate copy-paste-ready wiring instructions for Claude Code (`CLAUDE.md`),
+Codex (`AGENTS.md`), and Cursor (`.cursor/rules/architecture-context.mdc`).
+Each section should include the 5-step loading protocol with the quote
+requirement for patterns.
+
+### 10. Update State
 
 Set `phase_completed: 3` in `agent-docs/.analysis-state.md`.
 
-### 10. Report Completion
+### 11. Report Completion
 
 > **Phase 3 of 3 complete. Documentation set ready.**
 >
@@ -147,12 +154,16 @@ Set `phase_completed: 3` in `agent-docs/.analysis-state.md`.
 > - `agent-docs/decisions.md` — trade-offs
 > - `agent-docs/glossary.md` — terms
 > - `agent-docs/uncertainties.md` — gaps
+> - `agent-docs/agent-protocol.md` — wiring instructions for agents
 >
 > ---
 >
 > **IMPORTANT: Wire agent-docs into your coding agent.**
 >
-> Add this block to your agent config file (`CLAUDE.md` for Claude Code,
+> Follow the instructions in `agent-docs/agent-protocol.md` — it has
+> copy-paste-ready snippets for Claude Code, Codex, and Cursor.
+>
+> Or add this block to your agent config file (`CLAUDE.md` for Claude Code,
 > `.cursorrules` for Cursor, `AGENTS.md` for Codex). Create the file if
 > it doesn't exist.
 >
@@ -171,12 +182,13 @@ Set `phase_completed: 3` in `agent-docs/.analysis-state.md`.
 > ### Step 2: Load task-relevant subsystem docs
 > Identify which subsystem(s) your task touches based on the
 > architecture map. Read the corresponding
-> `agent-docs/subsystems/{name}.md`. If sub-subsystem docs exist
+> `agent-docs/subsystems/{name}.md`. If sub-module docs exist
 > in a subdirectory, read those too.
 >
 > ### Step 3: Check patterns before creating new files
 > Before creating any new file, read `agent-docs/patterns.md` and
-> follow the established pattern for that file type.
+> follow the established pattern for that file type. Quote the
+> specific pattern you are following.
 >
 > ### Step 4: Check constraints before architectural changes
 > If changing subsystem interactions, dependencies, or contracts —
@@ -184,9 +196,9 @@ Set `phase_completed: 3` in `agent-docs/.analysis-state.md`.
 > `agent-docs/uncertainties.md` first.
 >
 > ### Step 5: Confirm your understanding
-> Before writing code, briefly state which subsystem(s) you are
-> working in, which patterns you will follow, and any constraints
-> that apply. Then proceed.
+> Before writing code, state which subsystem(s) you are working in,
+> which patterns you will follow (quote the specific pattern from
+> patterns.md), and any constraints that apply. Then proceed.
 > ```
 >
 > **To update:** Re-run any phase. It augments existing `agent-docs/`.

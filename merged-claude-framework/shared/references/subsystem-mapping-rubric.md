@@ -96,7 +96,8 @@ recursive decomposition during Phase 2:
 
 Mark these in the checkpoint subsystem table with a "Recursion?" column.
 The actual decision to decompose happens during Phase 2 deep dive, with
-user confirmation.
+user confirmation. Maximum depth: 3 levels (system -> subsystem ->
+sub-module).
 
 ## Monorepo-Specific Guidance
 
@@ -112,10 +113,10 @@ target slice.
 
 ## Applying the Rubric Recursively
 
-When decomposing a subsystem into sub-subsystems (depth 2+), apply the
+When decomposing a subsystem into sub-modules (depth 2+), apply the
 same 2-of-6 criteria at each level. A sub-folder within a subsystem is
-a sub-subsystem only if it independently satisfies at least 2 criteria.
+a sub-module only if it independently satisfies at least 2 criteria.
 
 Large-but-uniform folders (many files, one pattern) should be documented
 via a pattern entry in `patterns.md`, not decomposed into individual
-sub-subsystem docs.
+sub-module docs.

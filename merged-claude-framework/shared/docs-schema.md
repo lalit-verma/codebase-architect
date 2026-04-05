@@ -11,6 +11,7 @@ agent-docs/
   agent-context.md            # PRIMARY: compact agent-loadable context
   patterns.md                 # detected code patterns and conventions
   agent-brief.md              # compact architecture for agents
+  agent-protocol.md           # wiring instructions for agents
   index.md                    # navigation hub
   system-overview.md          # top-level architecture
   decisions.md                # architectural trade-offs
@@ -18,7 +19,7 @@ agent-docs/
   uncertainties.md            # unresolved questions
   subsystems/
     {name}.md                 # one per subsystem
-    {name}/                   # recursive sub-subsystem docs (if needed)
+    {name}/                   # recursive sub-module docs (if needed)
       {child}.md
   flows/
     {name}.md                 # cross-cutting flows (if warranted)
@@ -31,11 +32,12 @@ Generate in this order during Phase 3:
 1. `agent-context.md` — primary deliverable, under 120 lines
 2. `patterns.md` — semi-automated, user confirms before write
 3. `agent-brief.md` — under 100 lines
-4. `index.md` — under 250 lines
-5. `decisions.md`
-6. `glossary.md`
-7. `uncertainties.md`
-8. `flows/*.md` (if warranted)
+4. `agent-protocol.md` — wiring instructions
+5. `index.md` — under 250 lines
+6. `decisions.md`
+7. `glossary.md`
+8. `uncertainties.md`
+9. `flows/*.md` (if warranted)
 
 `system-overview.md` and `subsystems/*.md` are written during earlier
 phases.
@@ -47,6 +49,7 @@ phases.
 | `agent-context.md` | Coding agents | Compact context loaded at session start |
 | `patterns.md` | Coding agents | Recipes for common operations |
 | `agent-brief.md` | Coding agents | Deeper architecture when needed |
+| `agent-protocol.md` | Humans | Wiring instructions for agent config |
 | `system-overview.md` | Both | Top-level architecture reference |
 | `subsystems/*.md` | Both | Deep subsystem reference |
 | `index.md` | Humans | Navigation and orientation |

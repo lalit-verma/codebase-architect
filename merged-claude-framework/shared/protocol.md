@@ -45,6 +45,7 @@ agent-docs/
   agent-context.md            # PRIMARY: compact agent-loadable context
   patterns.md                 # detected code patterns and conventions
   agent-brief.md              # compact architecture map
+  agent-protocol.md           # wiring instructions for agents
   index.md                    # navigation hub
   system-overview.md          # top-level architecture
   decisions.md                # architectural trade-offs
@@ -52,7 +53,7 @@ agent-docs/
   uncertainties.md            # unresolved questions
   subsystems/
     {name}.md                 # one per subsystem
-    {name}/                   # sub-subsystem docs (if recursion)
+    {name}/                   # sub-module docs (if recursion)
       {child}.md
   flows/
     {name}.md                 # cross-cutting flows (if warranted)
@@ -110,7 +111,7 @@ Internal steps:
 2. Generate `agent-docs/agent-context.md` (primary output)
 3. Generate `agent-docs/patterns.md` (semi-automated: propose, confirm)
 4. Generate remaining docs (agent-brief, index, decisions, glossary,
-   uncertainties, flow docs)
+   uncertainties, flow docs, agent-protocol)
 5. Report completion with agent integration instructions
 
 ## State Persistence
@@ -217,18 +218,17 @@ file. The protocol supports recursive decomposition:
 - Subsystem contains 3+ internal modules with own contracts/entrypoints
 
 **When triggered:**
-1. Propose decomposition in chat with candidate sub-subsystems.
+1. Propose decomposition in chat with candidate sub-modules.
 2. Wait for user confirmation.
 3. Write parent doc (`agent-docs/subsystems/{name}.md`) covering overview,
    internal map, cross-cutting concerns.
-4. Deep-dive each sub-subsystem, writing to
+4. Deep-dive each sub-module, writing to
    `agent-docs/subsystems/{name}/{child}.md`.
 
-**Depth limit:** 4 levels maximum.
+**Depth limit:** 3 levels maximum (system -> subsystem -> sub-module).
 - Depth 1: every subsystem (default)
 - Depth 2: 50+ files OR 3+ internal modules
-- Depth 3: 30+ files at depth 2 OR 2+ internal modules
-- Depth 4: hard stop — summarize remaining complexity
+- Depth 3: hard stop — summarize remaining complexity
 
 **When NOT to decompose:**
 - Many files following one pattern (e.g., 50 handler files with identical

@@ -69,6 +69,7 @@ If the user approves writing, propose exactly what will be created:
 - `agent-docs/agent-context.md` (primary deliverable)
 - `agent-docs/patterns.md`
 - `agent-docs/agent-brief.md`
+- `agent-docs/agent-protocol.md`
 - `agent-docs/system-overview.md`
 - `agent-docs/index.md`
 - `agent-docs/subsystems/{list}.md`

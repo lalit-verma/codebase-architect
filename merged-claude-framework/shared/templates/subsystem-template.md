@@ -18,7 +18,7 @@ from adjacent code.}
 | Outputs | {what it returns/emits/changes} |
 | State | {what it owns, or "none"} |
 
-## Sub-subsystems
+## Sub-Modules
 
 {If recursive decomposition was applied, list child docs:}
 - `agent-docs/subsystems/{name}/{child}.md` — {responsibility}
@@ -90,6 +90,22 @@ from adjacent code.}
 - Test patterns: {table-driven/BDD/snapshot/integration/etc.}
 - Notable fixtures or mocks: {if any}
 - Gaps: {what is not tested}
+
+## Modification Guide
+
+> What a coding agent (or developer) should know before changing this
+> subsystem. This is the most agent-valuable section.
+
+- **Invariants to preserve:** {contracts, ordering guarantees, state
+  assumptions that must not be broken}
+- **Pattern to follow when adding new code:**
+  - To add a new {handler/endpoint/adapter/etc.}: {steps, files to
+    touch, pattern to copy from}
+  - Best template to copy from: `{cleanest example file}`
+- **Files commonly touched together:** {list of files that are tightly
+  coupled and usually modified as a group}
+- **Gotchas for modifications:** {what a coding agent would likely get
+  wrong on the first attempt, implicit contracts, ordering requirements}
 
 ## Edge Cases and Gotchas
 

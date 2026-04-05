@@ -80,23 +80,19 @@ If generated code is present:
 ## Recursive Decomposition Thresholds
 
 These thresholds determine when a subsystem should be split into
-sub-subsystem docs during Phase 2 deep dive.
+sub-module docs during Phase 2 deep dive.
 
-### Depth 2 (parent subsystem → sub-subsystems)
+### Depth 2 (subsystem → sub-modules)
 
 Trigger when the subsystem has:
 - 50+ non-generated source files, OR
 - 3+ internal modules that each have their own contracts or entrypoints
 
-### Depth 3 (sub-subsystem → sub-sub-subsystems)
+### Depth 3 (hard stop)
 
-Trigger when a sub-subsystem at depth 2 has:
-- 30+ non-generated source files, OR
-- 2+ internal modules with own contracts
-
-### Depth 4 (hard stop)
-
-At depth 4, summarize remaining complexity. Do not decompose further.
+At depth 3, summarize remaining complexity. Do not decompose further.
+If a sub-module still feels too large, note it as a limitation and
+suggest a future focused analysis pass.
 
 ### When NOT to decompose
 

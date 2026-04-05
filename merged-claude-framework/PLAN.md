@@ -22,7 +22,7 @@ onboarding and reference.
 | Target platforms | Claude Code + Codex + Cursor | All three agent platforms supported |
 | Primary output | `agent-docs/agent-context.md` | Compact, actionable, designed for agent auto-loading |
 | Pattern detection | Semi-automated | Agent proposes, user confirms before final output |
-| Subsystem recursion | Adaptive, max depth 4 | Decompose only when single doc would lose actionable detail |
+| Subsystem recursion | Adaptive, max depth 3 | Decompose only when single doc would lose actionable detail |
 | Re-run behavior | Augment, don't replace | Read existing `agent-docs/`, update changed sections, preserve accurate ones |
 
 ---
@@ -66,7 +66,7 @@ onboarding and reference.
       2-deep-dive.md
       3-synthesize.md
   cursor/
-    install.md                           # Cursor-specific setup instructions
+    SKILL.md                             # Cursor skill with auto-trigger
 ```
 
 **How commands find shared resources:**
@@ -223,7 +223,7 @@ If `agent-docs/.analysis-state.md` exists:
 ### Phase 2: Deep Dive
 
 **Command:** `/user:analyze-deep-dive {subsystem-name}`
-**Runs:** Once per subsystem (and once per sub-subsystem if recursion triggers)
+**Runs:** Once per subsystem (and once per sub-module if recursion triggers)
 **Produces:** `agent-docs/subsystems/{name}.md` (and optionally `agent-docs/subsystems/{name}/*.md`)
 
 ```
@@ -252,10 +252,10 @@ Step 2: Evaluate recursion need
          - if user confirms decomposition:
              write parent doc at agent-docs/subsystems/{name}.md
              (overview + internal map + cross-cutting concerns)
-             then deep-dive each sub-subsystem, writing to
+             then deep-dive each sub-module, writing to
              agent-docs/subsystems/{name}/{child}.md
-         - recursion applies to depth 4 max
-         - at depth 4: summarize remaining complexity, don't decompose
+         - recursion applies to depth 3 max
+         - at depth 3: summarize remaining complexity, don't decompose
 
 Step 3: Analyze
          Investigate these dimensions:
@@ -315,7 +315,7 @@ Step 4: Write subsystem document
 Step 5: Update analysis state
          - move subsystem from pending to completed
          - record detected patterns
-         - if recursion occurred, record sub-subsystem structure
+         - if recursion occurred, record sub-module structure
 
 Step 6: Report next steps
          - "Deep dive on {name} complete. [{N}/{total}]"
@@ -504,7 +504,7 @@ A single protocol document that defines:
 - Enhancement: add recursive decomposition thresholds section:
     - 50+ files OR 3+ internal modules → propose depth-2
     - 30+ files at depth 2 OR 2+ internal modules → propose depth-3
-    - depth 4: hard stop
+    - depth 3: hard stop
     - rule: decompose only when parent doc loses actionable detail
     - many-files-one-pattern → pattern note, not recursion
 - All `docs/` references → `agent-docs/`
@@ -703,13 +703,13 @@ A single protocol document that defines:
 
 ---
 
-### Step 7: cursor/install.md — Cursor Setup (1 file)
+### Step 7: cursor/SKILL.md — Cursor Skill (1 file)
 
-- How to use the Codex prompts in Cursor's Composer (paste-able)
-- How to wire `agent-docs/agent-context.md` into `.cursorrules`
-- Note: Cursor doesn't have slash commands, so prompt-paste is the
-  workflow
-- ~40 lines
+- YAML frontmatter with auto-trigger keywords
+- Complete 3-phase workflow inline
+- References shared resources for full quality
+- How to wire `agent-docs/agent-context.md` into `.cursor/rules/`
+- ~140 lines
 
 **Depends on:** Steps 5-6
 **Total estimated size:** ~40 lines
@@ -803,7 +803,7 @@ Steps 2-3, 3-4, and 5-6-7 can be parallelized.
 | Primary deliverable | architecture docs | architecture docs | `agent-context.md` (compact, agent-loadable) |
 | Output folder | `docs/` | `docs/` | `agent-docs/` |
 | Pattern detection | none | none | semi-automated, per subsystem + consolidated |
-| Subsystem recursion | none | none | adaptive, depth 4 max |
+| Subsystem recursion | none | none | adaptive, depth 3 max |
 | Agent config integration | none | none | explicit wiring instructions for 3 platforms |
 | Installation | per-repo | per-repo | user-global (`~/.claude/`) |
 | Adaptive questioning | none | Phase 1 | built into Discover phase |

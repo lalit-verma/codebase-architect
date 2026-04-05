@@ -19,6 +19,7 @@ agent-docs/
   agent-context.md       ** PRIMARY: compact context for coding agents **
   patterns.md            ** code patterns — "how to add a new X" **
   agent-brief.md            compact architecture map
+  agent-protocol.md         wiring instructions for agents
   index.md                  navigation hub
   system-overview.md        top-level architecture
   decisions.md              architectural trade-offs
@@ -34,10 +35,10 @@ agent-docs/
 |-------|---------|------|--------|
 | 1. Discover & Map | `analyze-discover` | Once | `system-overview.md`, `.analysis-state.md` |
 | 2. Deep Dive | `analyze-deep-dive` | Once per subsystem | `subsystems/{name}.md` |
-| 3. Synthesize | `analyze-synthesize` | Once | `agent-context.md`, `patterns.md`, and all remaining docs |
+| 3. Synthesize | `analyze-synthesize` | Once | `agent-context.md`, `patterns.md`, `agent-protocol.md`, and all remaining docs |
 
 Phase 2 runs multiple times — once per subsystem. Large subsystems
-are recursively decomposed (up to depth 4). Each phase tells you what
+are recursively decomposed (up to depth 3). Each phase tells you what
 to run next.
 
 ## Setup: Claude Code
@@ -82,8 +83,14 @@ to run next.
 
 ## Setup: Cursor
 
-See `cursor/install.md` for detailed instructions. In brief: paste
-the prompts from `codex/prompts/` into Cursor's Composer.
+1. Copy `cursor/SKILL.md` and the `shared/` directory to your Cursor
+   skills location.
+
+2. Open Cursor in your target repo.
+
+3. Ask the agent to analyze the codebase — the skill triggers on
+   phrases like "analyze this codebase", "help me understand this
+   repo", "document this architecture", etc.
 
 ## After Analysis: Wire agent-docs Into Your Coding Agent
 
@@ -118,13 +125,14 @@ Internalize the patterns and constraints before proceeding.
 ### Step 2: Load task-relevant subsystem docs (based on your task)
 Identify which subsystem(s) your task touches based on the architecture
 map in agent-context.md. Read the corresponding subsystem doc(s) from
-`agent-docs/subsystems/`. If the subsystem has sub-subsystem docs
+`agent-docs/subsystems/`. If the subsystem has sub-module docs
 (a subdirectory under subsystems/), read those too.
 
 ### Step 3: Check patterns before creating new files
 Before creating any new file, read `agent-docs/patterns.md` and follow
 the established pattern for that file type. Do not invent new patterns
-when an established one exists.
+when an established one exists. In your plan, quote the specific pattern
+you are following (e.g. "Per patterns.md, this repo uses...").
 
 ### Step 4: Check constraints before architectural changes
 If your task involves changing how subsystems interact, adding new
@@ -133,9 +141,9 @@ first to understand existing trade-offs, and `agent-docs/uncertainties.md`
 to know where assumptions are weak.
 
 ### Step 5: Confirm your understanding
-Before writing code, briefly state which subsystem(s) you're working in,
-which patterns you'll follow, and any constraints from decisions.md that
-apply. Then proceed.
+Before writing code, state which subsystem(s) you're working in, which
+patterns you'll follow (quote the specific pattern from patterns.md),
+and any constraints from decisions.md that apply. Then proceed.
 ```
 
 ---
@@ -158,18 +166,18 @@ before proceeding.
 
 Step 2: Based on the architecture map, identify which subsystem your
 task touches. Read the corresponding `agent-docs/subsystems/{name}.md`.
-If sub-subsystem docs exist in a subdirectory, read those too.
+If sub-module docs exist in a subdirectory, read those too.
 
 Step 3: Before creating any new file, read `agent-docs/patterns.md`.
 Follow the established pattern for that file type. Do not invent new
-patterns.
+patterns. Quote the specific pattern you are following.
 
 Step 4: If changing subsystem interactions, dependencies, or contracts,
 read `agent-docs/decisions.md` and `agent-docs/uncertainties.md` first.
 
-Step 5: Before writing code, briefly state which subsystem you're
-working in, which patterns apply, and any relevant constraints. Then
-proceed.
+Step 5: Before writing code, state which subsystem you're working in,
+which patterns apply (quote the specific pattern from patterns.md),
+and any relevant constraints. Then proceed.
 ```
 
 ---
@@ -192,18 +200,18 @@ before proceeding.
 
 Step 2: Based on the architecture map, identify which subsystem your
 task touches. Read the corresponding `agent-docs/subsystems/{name}.md`.
-If sub-subsystem docs exist in a subdirectory, read those too.
+If sub-module docs exist in a subdirectory, read those too.
 
 Step 3: Before creating any new file, read `agent-docs/patterns.md`.
 Follow the established pattern for that file type. Do not invent new
-patterns.
+patterns. Quote the specific pattern you are following.
 
 Step 4: If changing subsystem interactions, dependencies, or contracts,
 read `agent-docs/decisions.md` and `agent-docs/uncertainties.md` first.
 
-Step 5: Before writing code, briefly state which subsystem you're
-working in, which patterns apply, and any relevant constraints. Then
-proceed.
+Step 5: Before writing code, state which subsystem you're working in,
+which patterns apply (quote the specific pattern from patterns.md),
+and any relevant constraints. Then proceed.
 ```
 
 ---
@@ -244,7 +252,7 @@ because stale context is worse than no context.
 - **Evidence-based.** Cites file paths. Labels uncertainty.
 - **Pattern-aware.** Detects recurring code structures and documents
   them as actionable recipes.
-- **Recursive.** Large subsystems are decomposed up to depth 4.
+- **Recursive.** Large subsystems are decomposed up to depth 3.
 - **Durable.** Output structured for long-term reuse. Supports re-runs.
 
 ## File Structure
@@ -265,8 +273,10 @@ merged-claude-framework/
       pattern-detection-guide.md    pattern detection method
     templates/                      output document templates
       agent-context-template.md
+      agent-protocol-template.md
       patterns-template.md
       subsystem-template.md
+      sub-module-template.md
       index-template.md
       agent-brief-template.md
       system-overview-template.md
@@ -289,5 +299,5 @@ merged-claude-framework/
       2-deep-dive.md
       3-synthesize.md
   cursor/
-    install.md                      Cursor setup instructions
+    SKILL.md                        Cursor skill with auto-trigger
 ```
