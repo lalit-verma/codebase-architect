@@ -3,7 +3,9 @@
 ```markdown
 # Glossary
 
-> Project-specific terms and abstractions. Generated on {date}.
+> Project-specific terms and abstractions.
+> Generated: {YYYY-MM-DD HH:MM UTC}
+> Analysis version: v1 | Source commit: {short_sha}
 
 | Term | Meaning | Where Used | Related Docs |
 |------|---------|------------|--------------|

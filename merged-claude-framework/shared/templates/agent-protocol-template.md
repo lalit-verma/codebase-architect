@@ -7,6 +7,9 @@ agent's context.
 ```markdown
 # Agent Protocol — How to Use These Docs
 
+> Generated: {YYYY-MM-DD HH:MM UTC}
+> Analysis version: v1 | Source commit: {short_sha}
+
 This file contains ready-to-use instructions for connecting these
 architecture docs to your coding agent. Copy the relevant section
 into your agent config file.
@@ -30,9 +33,11 @@ Internalize the patterns and constraints before proceeding.
 
 **Step 2: Load task-relevant subsystem docs**
 Identify which subsystem(s) your task touches based on the architecture
-map in agent-context.md. Read the corresponding subsystem doc(s) from
-`agent-docs/subsystems/`. If the subsystem has sub-module docs
-(a subdirectory under subsystems/), read those too.
+map in agent-context.md. If `agent-docs/routing-map.md` exists, use it
+to look up the exact subsystem doc and pattern for your task type. Read
+the corresponding subsystem doc(s) from `agent-docs/subsystems/`. If
+the subsystem has sub-module docs (a subdirectory under subsystems/),
+read those too.
 
 **Step 3: Check patterns before creating new files**
 Before creating any new file, read `agent-docs/patterns.md` and follow

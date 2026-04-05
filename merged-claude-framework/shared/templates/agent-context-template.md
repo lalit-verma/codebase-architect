@@ -7,7 +7,7 @@ No prose. No tables. Every line must be actionable for a coding agent.
 # {Repo Name} — Agent Context
 
 > Load this file at session start for full codebase context.
-> Generated on {date}. Re-run analysis to update.
+> Generated: {YYYY-MM-DD HH:MM UTC} | v1 | {short_sha}
 
 ## What this repo is
 {2-3 sentences: what it does, archetype, language, execution model.}
@@ -46,6 +46,7 @@ No prose. No tables. Every line must be actionable for a coding agent.
 - `{file:line}` — {what it defines, who implements it}
 
 ## For deeper context
+- `agent-docs/routing-map.md` — structured task-to-doc lookup (machine-readable)
 - `agent-docs/agent-brief.md` — full architecture overview
 - `agent-docs/patterns.md` — all detected code patterns with recipes
 - `agent-docs/subsystems/{name}.md` — {when to read}

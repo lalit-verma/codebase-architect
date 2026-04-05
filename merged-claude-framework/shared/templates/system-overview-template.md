@@ -4,7 +4,8 @@
 # {Repo Name} System Overview
 
 > Auto-generated. Review before relying as ground truth.
-> Generated on {date}.
+> Generated: {YYYY-MM-DD HH:MM UTC}
+> Analysis version: v1 | Source commit: {short_sha}
 
 ## Purpose
 

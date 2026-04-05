@@ -44,6 +44,14 @@ file coding agents load at session start.
 
 ## Procedure
 
+### 0. Capture Version Info
+
+Run: `git rev-parse --short=7 HEAD 2>/dev/null || echo "unknown"`
+
+Record as `{short_sha}`. Record current UTC time. Apply this version
+header to ALL generated files:
+`> Generated: {YYYY-MM-DD HH:MM UTC} | v1 | {short_sha}`
+
 ### 1. Write `agent-docs/agent-context.md` — PRIMARY OUTPUT
 
 **Hard rules:**
@@ -59,7 +67,7 @@ file coding agents load at session start.
 # {Repo Name} — Agent Context
 
 > Load this file at session start for full codebase context.
-> Generated on {date}. Re-run analysis to update.
+> Generated: {YYYY-MM-DD HH:MM UTC} | v1 | {short_sha}
 
 ## What this repo is
 {2-3 sentences: what it does, archetype, language, execution model.}
@@ -118,6 +126,16 @@ Consolidate all patterns from Phase 2. **Present to user first:**
 
 After confirmation, write with: example file, file count, steps to add
 new instance, conventions, anti-patterns.
+
+### 2b. Write `agent-docs/routing-map.md`
+
+Build a machine-readable YAML-in-markdown routing map. Two sections:
+- `subsystem_routing`: per-subsystem (owns_paths, key_files, key_tests,
+  common_tasks from Modification Guide)
+- `pattern_routing`: per-pattern (template_file, registration,
+  test_template from patterns.md)
+
+Structured lookup table only. Do not duplicate agent-context.md content.
 
 ### 3. Write `agent-docs/agent-brief.md`
 
@@ -183,6 +201,7 @@ Set `phase_completed: 3` in `agent-docs/.analysis-state.md`.
 > Generated:
 > - `agent-docs/agent-context.md` — **primary: compact agent context**
 > - `agent-docs/patterns.md` — code patterns
+> - `agent-docs/routing-map.md` — task-to-doc routing
 > - `agent-docs/agent-brief.md` — compact architecture
 > - `agent-docs/index.md` — navigation hub
 > - `agent-docs/decisions.md` — trade-offs

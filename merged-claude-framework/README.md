@@ -20,6 +20,7 @@ agent-docs/
   patterns.md            ** code patterns — "how to add a new X" **
   agent-brief.md            compact architecture map
   agent-protocol.md         wiring instructions for agents
+  routing-map.md            task-to-doc routing (machine-readable)
   index.md                  navigation hub
   system-overview.md        top-level architecture
   decisions.md              architectural trade-offs
@@ -275,6 +276,7 @@ merged-claude-framework/
       agent-context-template.md
       agent-protocol-template.md
       patterns-template.md
+      routing-map-template.md
       subsystem-template.md
       sub-module-template.md
       index-template.md

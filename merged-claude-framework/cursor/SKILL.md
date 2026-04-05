@@ -97,9 +97,11 @@ Read all existing docs first.
 
 **Steps:**
 
+0. **Capture version info** — run `git rev-parse --short=7 HEAD` for source commit. Record UTC timestamp. Apply version header (`> Generated: {YYYY-MM-DD HH:MM UTC} | v1 | {short_sha}`) to ALL generated files.
 1. **Write `agent-docs/agent-context.md`** — PRIMARY OUTPUT. Under 120 lines. No tables. No prose. Every line actionable. Use `shared/references/agent-context-rules.md` and `shared/examples/agent-context-example.md` for quality calibration.
 1b. **Self-validate agent-context.md** — under 120 lines, no tables, no confidence labels, all 7 sections, file paths in every map/pattern/contract entry. Fix before continuing.
 2. **Write `agent-docs/patterns.md`** — consolidated code and test conventions. Present to user for confirmation before writing.
+2b. **Write `agent-docs/routing-map.md`** — machine-readable YAML routing from tasks to subsystem docs, pattern docs, template files, and test templates. Derived from subsystem docs and patterns.md. Lookup table only, no narrative.
 3. **Write `agent-docs/agent-brief.md`** — compact architecture (<100 lines). Include Common Change Playbooks.
 4. **Write `agent-docs/index.md`** — navigation hub (<250 lines).
 5. **Write `agent-docs/decisions.md`** — 5-8 key decisions.
@@ -120,6 +122,7 @@ agent-docs/
   patterns.md              ** code patterns — "how to add a new X" **
   agent-brief.md              compact architecture map
   agent-protocol.md           wiring instructions for agents
+  routing-map.md              task-to-doc routing (machine-readable)
   index.md                    navigation hub
   system-overview.md          top-level architecture
   decisions.md                architectural trade-offs

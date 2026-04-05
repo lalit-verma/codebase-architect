@@ -12,7 +12,7 @@ Note: under 120 lines, no prose, no tables, every line actionable.
 # Acme Platform — Agent Context
 
 > Load this file at session start for full codebase context.
-> Generated on 2026-04-06. Re-run analysis to update.
+> Generated: 2026-04-06 14:23 UTC | v1 | a1b2c3d
 
 ## What this repo is
 TypeScript monorepo for the Acme platform. Contains a Next.js web app,
@@ -81,6 +81,7 @@ adapters, and configuration. Uses pnpm workspaces + turborepo.
 - `apps/cli/src/commands/types.ts:3` — `CommandDef` interface, all CLI commands implement
 
 ## For deeper context
+- `agent-docs/routing-map.md` — structured task-to-doc lookup
 - `agent-docs/agent-brief.md` — full architecture overview
 - `agent-docs/patterns.md` — all detected patterns with recipes
 - `agent-docs/subsystems/runtime-core.md` — execution engine internals

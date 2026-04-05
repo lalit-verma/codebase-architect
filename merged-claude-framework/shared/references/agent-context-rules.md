@@ -84,15 +84,13 @@ uncertainties.md, and the most important subsystem docs.
 
 When generating `agent-context.md` during Phase 3:
 
-| Section | Source |
-|---------|--------|
-| What this repo is | `agent-docs/system-overview.md` purpose section |
-| Architecture map | All subsystem docs — extract key paths |
-| Key patterns | `agent-docs/patterns.md` (consolidated from Phase 2) |
-| Conventions | Design decisions + observed consistency in deep dives |
-| Do NOT | Edge cases, gotchas, and anti-patterns from subsystem docs |
-| Key contracts | Contracts and types sections from subsystem docs |
-| For deeper context | Fixed structure pointing to other agent-docs/ files |
+- **What this repo is** — source from `agent-docs/system-overview.md` purpose section
+- **Architecture map** — all subsystem docs, extract key paths
+- **Key patterns** — `agent-docs/patterns.md` (consolidated from Phase 2)
+- **Conventions** — design decisions + observed consistency in deep dives
+- **Do NOT** — edge cases, gotchas, and anti-patterns from subsystem docs
+- **Key contracts** — contracts and types sections from subsystem docs
+- **For deeper context** — fixed structure pointing to other agent-docs/ files
 
 ## Platform Notes
 

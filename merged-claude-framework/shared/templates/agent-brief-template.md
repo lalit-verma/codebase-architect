@@ -8,6 +8,8 @@ over prose.
 
 > Compact architecture context. For the minimal version, read
 > `agent-context.md` instead. This file provides deeper detail.
+> Generated: {YYYY-MM-DD HH:MM UTC}
+> Analysis version: v1 | Source commit: {short_sha}
 
 ## What This Repo Is
 
@@ -15,12 +17,10 @@ over prose.
 
 ## Classification
 
-| Field | Value |
-|-------|-------|
-| Archetype | {application/library/SDK/framework/monorepo/hybrid} |
-| Primary language | {language} |
-| Execution model | {model} |
-| Scale | {size tier} |
+- Archetype: {application/library/SDK/framework/monorepo/hybrid}
+- Primary language: {language}
+- Execution model: {model}
+- Scale: {size tier}
 
 ## Architecture at a Glance
 
@@ -32,15 +32,11 @@ over prose.
 
 ## Subsystems That Matter Most
 
-| Subsystem | Why It Matters | Doc |
-|-----------|----------------|-----|
-| {name} | {1 sentence} | `subsystems/{name}.md` |
+- {name} — {why it matters} (`subsystems/{name}.md`)
 
 ## Flows That Explain the System
 
-| Flow | Why It Matters | Doc |
-|------|----------------|-----|
-| {flow} | {1 sentence} | `{doc path}` |
+- {flow} — {why it matters} (`{doc path}`)
 
 ## Key Decisions
 

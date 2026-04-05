@@ -4,7 +4,9 @@
 # {Repo Name} Documentation Index
 
 > Auto-generated architecture documentation. Review uncertain sections
-> before relying as ground truth. Generated on {date}.
+> before relying as ground truth.
+> Generated: {YYYY-MM-DD HH:MM UTC}
+> Analysis version: v1 | Source commit: {short_sha}
 
 ## What This Repo Is
 
@@ -15,7 +17,7 @@ these docs cover.}
 
 - Coverage: {whole repo / top-level monorepo architecture / specific slice}
 - Evidence quality: {high/medium/mixed} with brief reason
-- Generated on: {date}
+- Generated: {YYYY-MM-DD HH:MM UTC}
 
 ## Recommended Reading Order
 

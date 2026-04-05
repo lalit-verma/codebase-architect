@@ -5,7 +5,8 @@
 
 > Detected patterns for common operations in this codebase.
 > Confirmed by user. Follow these when adding new instances.
-> Generated on {date}.
+> Generated: {YYYY-MM-DD HH:MM UTC}
+> Analysis version: v1 | Source commit: {short_sha}
 
 ## {Pattern Name} ({category})
 

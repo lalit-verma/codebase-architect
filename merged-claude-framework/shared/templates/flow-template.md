@@ -3,6 +3,9 @@
 ```markdown
 # {Flow Name}
 
+> Generated: {YYYY-MM-DD HH:MM UTC}
+> Analysis version: v1 | Source commit: {short_sha}
+
 ## Why This Flow Matters
 
 {1 short paragraph: what architectural question this flow answers.}

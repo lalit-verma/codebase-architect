@@ -8,6 +8,8 @@ Target ~60% the length of a full subsystem doc.
 # {Sub-Module Name}
 
 > Part of [{Parent Subsystem}](../{parent-subsystem}.md)
+> Generated: {YYYY-MM-DD HH:MM UTC}
+> Analysis version: v1 | Source commit: {short_sha}
 
 ## Why This Sub-Module Exists
 

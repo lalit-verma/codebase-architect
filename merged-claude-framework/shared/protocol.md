@@ -46,6 +46,7 @@ agent-docs/
   patterns.md                 # detected code patterns and conventions
   agent-brief.md              # compact architecture map
   agent-protocol.md           # wiring instructions for agents
+  routing-map.md              # task-to-doc routing (machine-readable)
   index.md                    # navigation hub
   system-overview.md          # top-level architecture
   decisions.md                # architectural trade-offs
@@ -134,6 +135,8 @@ recursion_candidates: [{list}]
 preliminary_patterns: [{list}]
 selected_scope: [{list, if monorepo/very-large}]
 scope_selection_presented: {true/false, if applicable}
+analysis_version: v1
+source_commit: {first 7 chars of HEAD, or "unknown"}
 ```
 
 Each phase reads this file before proceeding. Phase 2 updates it after

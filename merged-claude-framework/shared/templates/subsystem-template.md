@@ -3,6 +3,9 @@
 ```markdown
 # {Subsystem Name}
 
+> Generated: {YYYY-MM-DD HH:MM UTC}
+> Analysis version: v1 | Source commit: {short_sha}
+
 ## Why This Subsystem Exists
 
 {1 paragraph: responsibility, role in the system, why it is separated
@@ -10,13 +13,11 @@ from adjacent code.}
 
 ## Boundaries
 
-| Aspect | Detail |
-|--------|--------|
-| Path / scope | `{path}` |
-| Role tag | `{entrypoint/orchestration/domain/etc.}` |
-| Inputs | {who calls it or what triggers it} |
-| Outputs | {what it returns/emits/changes} |
-| State | {what it owns, or "none"} |
+- Path / scope: `{path}`
+- Role tag: `{entrypoint/orchestration/domain/etc.}`
+- Inputs: {who calls it or what triggers it}
+- Outputs: {what it returns/emits/changes}
+- State: {what it owns, or "none"}
 
 ## Sub-Modules
 
@@ -33,15 +34,11 @@ from adjacent code.}
 
 ## Internal Structure
 
-| Unit | Responsibility | Why It Matters |
-|------|----------------|----------------|
-| `{file or package}` | {1 sentence} | {1 sentence} |
+- `{file or package}` — {responsibility}; {why it matters}
 
 ## Key Contracts and Types
 
-| Contract / Type | Defined In | Purpose | Used By |
-|-----------------|------------|---------|---------|
-| {name} | `{file:line}` | {1 sentence} | {callers/consumers} |
+- {name} (`{file:line}`) — {purpose}; used by {callers/consumers}
 
 ## Main Flows
 
@@ -57,15 +54,11 @@ from adjacent code.}
 
 ### Internal
 
-| Dependency | Why | Direction |
-|------------|-----|-----------|
-| {subsystem} | {1 sentence} | {imports/imported by/bidirectional} |
+- {subsystem} — {why} ({imports/imported by/bidirectional})
 
 ### External
 
-| Package | Purpose | Load-Bearing? |
-|---------|---------|---------------|
-| {name} | {1 sentence} | {yes/no} |
+- {name} — {purpose} (load-bearing: {yes/no})
 
 ## Configuration and State
 
@@ -118,9 +111,7 @@ from adjacent code.}
 
 {Patterns found within this subsystem, accumulated for Phase 3:}
 
-| Pattern | Category | Example File | File Count |
-|---------|----------|--------------|------------|
-| {name} | {category} | `{path}` | {N} |
+- {name} ({category}) — example: `{path}`, {N} files
 
 {If no patterns: "No recurring patterns detected in this subsystem."}
 

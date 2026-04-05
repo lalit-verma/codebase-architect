@@ -5,7 +5,8 @@
 
 > Separates code facts from inferred rationale. Treat `Inference:`
 > sections as architectural reading, not ground truth from authors.
-> Generated on {date}.
+> Generated: {YYYY-MM-DD HH:MM UTC}
+> Analysis version: v1 | Source commit: {short_sha}
 
 ## {Decision Title}
 

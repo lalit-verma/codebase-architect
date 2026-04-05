@@ -70,6 +70,25 @@ the primary deliverable.
 
 ## Procedure
 
+### Step 0: Capture Version Info
+
+Run: `git rev-parse --short=7 HEAD 2>/dev/null || echo "unknown"`
+
+Record the result as `{short_sha}`. Record the current UTC time as
+`{YYYY-MM-DD HH:MM UTC}`. Apply this version header to ALL generated
+files:
+
+```
+> Generated: {YYYY-MM-DD HH:MM UTC}
+> Analysis version: v1 | Source commit: {short_sha}
+```
+
+For `agent-context.md` only (120-line budget), use the compact
+single-line variant:
+```
+> Generated: {YYYY-MM-DD HH:MM UTC} | v1 | {short_sha}
+```
+
 ### Step 1: Generate `agent-docs/agent-context.md` — PRIMARY OUTPUT
 
 This is the most important file produced by the entire analysis.
@@ -95,7 +114,7 @@ use it as a quality calibration target.
 # {Repo Name} — Agent Context
 
 > Load this file at session start for full codebase context.
-> Generated on {date}. Re-run analysis to update.
+> Generated: {YYYY-MM-DD HH:MM UTC} | v1 | {short_sha}
 
 ## What this repo is
 {2-3 sentences: what it does, archetype, language, execution model.}
@@ -132,15 +151,13 @@ use it as a quality calibration target.
 
 **Content sourcing:**
 
-| Section | Source from existing docs |
-|---------|--------------------------|
-| What this repo is | `system-overview.md` purpose section |
-| Architecture map | All subsystem docs — extract key paths |
-| Key patterns | Detected patterns from subsystem deep dives |
-| Conventions | Design decisions + observed consistency |
-| Do NOT | Edge cases, gotchas, anti-patterns from subsystem docs |
-| Key contracts | Contracts and types from subsystem docs |
-| For deeper context | Fixed pointers to other agent-docs/ files |
+- **What this repo is** — `system-overview.md` purpose section
+- **Architecture map** — all subsystem docs, extract key paths
+- **Key patterns** — detected patterns from subsystem deep dives
+- **Conventions** — design decisions + observed consistency
+- **Do NOT** — edge cases, gotchas, anti-patterns from subsystem docs
+- **Key contracts** — contracts and types from subsystem docs
+- **For deeper context** — fixed pointers to other agent-docs/ files
 
 ### Step 1b: Self-Validate agent-context.md
 
@@ -187,7 +204,7 @@ After user confirms, write using the patterns template:
 # Code Patterns and Conventions
 
 > Detected patterns for common operations. Confirmed by user.
-> Generated on {date}.
+> Generated: {YYYY-MM-DD HH:MM UTC} | v1 | {short_sha}
 
 ## {Pattern Name} ({category})
 - Example file: `{path}` (cleanest instance)
@@ -208,6 +225,26 @@ After user confirms, write using the patterns template:
 - {what NOT to do}
 ```
 
+### Step 2b: Generate `agent-docs/routing-map.md`
+
+Build a machine-readable routing map from the subsystem docs and
+patterns.md. This is a YAML-in-markdown lookup table, NOT narrative.
+
+If `~/.claude/codebase-analysis/templates/routing-map-template.md`
+exists, use its structure. Otherwise:
+
+The file has two YAML sections inside a code block:
+- `subsystem_routing`: one entry per completed subsystem. Pull
+  `owns_paths` from subsystem Boundaries, `key_files` from Evidence
+  Anchors, `key_tests` from Testing, `common_tasks` from Modification
+  Guide.
+- `pattern_routing`: one entry per confirmed pattern from patterns.md.
+  Pull `template_file` from the example file, `registration` from
+  the registration point, `test_template` from the test step.
+
+Do NOT duplicate narrative from agent-context.md. This is a structured
+lookup table only.
+
 ### Step 3: Generate `agent-docs/agent-brief.md`
 
 Compact architecture map. Under 100 lines. More file-path-heavy than
@@ -222,12 +259,10 @@ prose-heavy.
 {2-4 sentences}
 
 ## Classification
-| Field | Value |
-|-------|-------|
-| Archetype | {value} |
-| Primary language | {value} |
-| Execution model | {value} |
-| Scale | {value} |
+- Archetype: {value}
+- Primary language: {value}
+- Execution model: {value}
+- Scale: {value}
 
 ## Architecture at a Glance
 - Main entrypoints: `{paths}`
@@ -237,14 +272,10 @@ prose-heavy.
 - Config sources: {files/env/flags}
 
 ## Subsystems That Matter Most
-| Subsystem | Why | Doc |
-|-----------|-----|-----|
-| {name} | {1 sentence} | `subsystems/{name}.md` |
+- {name} — {why} (`subsystems/{name}.md`)
 
 ## Flows That Explain the System
-| Flow | Why | Doc |
-|------|-----|-----|
-| {flow} | {1 sentence} | `{path}` |
+- {flow} — {why} (`{doc path}`)
 
 ## Key Decisions
 - {decision} (see `decisions.md`)
@@ -268,7 +299,7 @@ Navigation hub. Under 250 lines.
 ```markdown
 # {Repo Name} Documentation Index
 
-> Auto-generated architecture documentation. Generated on {date}.
+> Auto-generated architecture documentation. Generated: {YYYY-MM-DD HH:MM UTC} | v1 | {short_sha}
 
 ## What This Repo Is
 {1 paragraph}
@@ -318,7 +349,7 @@ medium/large repos, 3-5 for small.
 ```markdown
 # Architectural Decisions
 
-> Separates code facts from inferred rationale. Generated on {date}.
+> Separates code facts from inferred rationale. Generated: {YYYY-MM-DD HH:MM UTC} | v1 | {short_sha}
 
 ## {Decision Title}
 - **Scope:** {subsystems affected}
@@ -338,7 +369,7 @@ Project-specific terms, abstractions, domain vocabulary.
 ```markdown
 # Glossary
 
-> Project-specific terms. Generated on {date}.
+> Project-specific terms. Generated: {YYYY-MM-DD HH:MM UTC} | v1 | {short_sha}
 
 | Term | Meaning | Where Used | Related Docs |
 |------|---------|------------|--------------|
@@ -354,7 +385,7 @@ Consolidate all `UNCERTAIN:` and `NEEDS CLARIFICATION:` items.
 ```markdown
 # Uncertainties and Open Questions
 
-> Check before making risky assumptions. Generated on {date}.
+> Check before making risky assumptions. Generated: {YYYY-MM-DD HH:MM UTC} | v1 | {short_sha}
 
 | Topic | Why Uncertain | Evidence Seen | What Would Resolve It |
 |-------|---------------|---------------|-----------------------|
@@ -459,6 +490,7 @@ Tell the user:
 > - `agent-docs/agent-context.md` — **primary: compact context for
 >   coding agents**
 > - `agent-docs/patterns.md` — code patterns and conventions
+> - `agent-docs/routing-map.md` — task-to-doc routing (machine-readable)
 > - `agent-docs/agent-brief.md` — compact architecture
 > - `agent-docs/index.md` — navigation hub
 > - `agent-docs/decisions.md` — architectural trade-offs
