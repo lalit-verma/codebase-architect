@@ -112,39 +112,15 @@ Add this block to your `CLAUDE.md` (create it at repo root if it
 doesn't exist):
 
 ```markdown
-## Codebase Context — Read Before Every Task
+## Codebase Context
 
-Before starting any task in this repository, follow these steps in
-order. Do not skip steps. Do not start writing code until you have
-completed the reading.
+Read `agent-docs/agent-context.md` once at session start — it has the
+architecture map, key patterns, and conventions.
 
-### Step 1: Load core context (always)
-Read `agent-docs/agent-context.md` fully. This contains the
-architecture map, code patterns, conventions, and anti-patterns.
-Internalize the patterns and constraints before proceeding.
-
-### Step 2: Load task-relevant subsystem docs (based on your task)
-Identify which subsystem(s) your task touches based on the architecture
-map in agent-context.md. Read the corresponding subsystem doc(s) from
-`agent-docs/subsystems/`. If the subsystem has sub-module docs
-(a subdirectory under subsystems/), read those too.
-
-### Step 3: Check patterns before creating new files
-Before creating any new file, read `agent-docs/patterns.md` and follow
-the established pattern for that file type. Do not invent new patterns
-when an established one exists. In your plan, quote the specific pattern
-you are following (e.g. "Per patterns.md, this repo uses...").
-
-### Step 4: Check constraints before architectural changes
-If your task involves changing how subsystems interact, adding new
-dependencies, or modifying contracts — read `agent-docs/decisions.md`
-first to understand existing trade-offs, and `agent-docs/uncertainties.md`
-to know where assumptions are weak.
-
-### Step 5: Confirm your understanding
-Before writing code, state which subsystem(s) you're working in, which
-patterns you'll follow (quote the specific pattern from patterns.md),
-and any constraints from decisions.md that apply. Then proceed.
+For non-trivial work, also consult the relevant
+`agent-docs/subsystems/{name}.md` and `agent-docs/patterns.md` before
+creating new files of an established type. Skip both for small or
+self-contained edits.
 ```
 
 ---
@@ -155,30 +131,15 @@ Add this block to your `.cursorrules` (create it at repo root if it
 doesn't exist):
 
 ```markdown
-## Codebase Context — Read Before Every Task
+## Codebase Context
 
-Before starting any task in this repository, follow these steps in
-order. Do not skip steps. Do not start writing code until you have
-completed the reading.
+Read `agent-docs/agent-context.md` once at session start — it has the
+architecture map, key patterns, and conventions.
 
-Step 1: Read `agent-docs/agent-context.md` fully. This is the
-architecture map, patterns, conventions, and anti-patterns. Internalize
-before proceeding.
-
-Step 2: Based on the architecture map, identify which subsystem your
-task touches. Read the corresponding `agent-docs/subsystems/{name}.md`.
-If sub-module docs exist in a subdirectory, read those too.
-
-Step 3: Before creating any new file, read `agent-docs/patterns.md`.
-Follow the established pattern for that file type. Do not invent new
-patterns. Quote the specific pattern you are following.
-
-Step 4: If changing subsystem interactions, dependencies, or contracts,
-read `agent-docs/decisions.md` and `agent-docs/uncertainties.md` first.
-
-Step 5: Before writing code, state which subsystem you're working in,
-which patterns apply (quote the specific pattern from patterns.md),
-and any relevant constraints. Then proceed.
+For non-trivial work, also consult the relevant
+`agent-docs/subsystems/{name}.md` and `agent-docs/patterns.md` before
+creating new files of an established type. Skip both for small or
+self-contained edits.
 ```
 
 ---
@@ -189,54 +150,44 @@ Add this block to your `AGENTS.md` (create it at repo root if it
 doesn't exist, or append to existing):
 
 ```markdown
-## Codebase Context — Read Before Every Task
+## Codebase Context
 
-Before starting any task in this repository, follow these steps in
-order. Do not skip steps. Do not start writing code until you have
-completed the reading.
+Read `agent-docs/agent-context.md` once at session start — it has the
+architecture map, key patterns, and conventions.
 
-Step 1: Read `agent-docs/agent-context.md` fully. This is the
-architecture map, patterns, conventions, and anti-patterns. Internalize
-before proceeding.
-
-Step 2: Based on the architecture map, identify which subsystem your
-task touches. Read the corresponding `agent-docs/subsystems/{name}.md`.
-If sub-module docs exist in a subdirectory, read those too.
-
-Step 3: Before creating any new file, read `agent-docs/patterns.md`.
-Follow the established pattern for that file type. Do not invent new
-patterns. Quote the specific pattern you are following.
-
-Step 4: If changing subsystem interactions, dependencies, or contracts,
-read `agent-docs/decisions.md` and `agent-docs/uncertainties.md` first.
-
-Step 5: Before writing code, state which subsystem you're working in,
-which patterns apply (quote the specific pattern from patterns.md),
-and any relevant constraints. Then proceed.
+For non-trivial work, also consult the relevant
+`agent-docs/subsystems/{name}.md` and `agent-docs/patterns.md` before
+creating new files of an established type. Skip both for small or
+self-contained edits.
 ```
 
 ---
 
 ### Why this structure works
 
-**Tiered loading prevents context window waste.** Step 1 (~120 lines)
-is always loaded. Steps 2-4 are conditional — the agent reads only
-what's relevant to the current task. A bug fix in the storage layer
-doesn't need the UI subsystem doc.
+**Lean by default.** Earlier versions of this framework prescribed a
+five-step ritual ("Step 1...Step 5, do not skip steps, quote the
+specific pattern, state your understanding"). Benchmark runs showed
+the ritual was the dominant cost driver: it pushed agents off cheaper
+models onto reasoning-heavy ones for tasks that did not need it,
+inflated cost without improving pass rates, and added overhead on
+trivial edits where the docs were not relevant. The current wiring
+loads the compact context once and trusts the agent to pull deeper
+docs only when the task warrants it.
 
-**"Do not skip steps" forces sequential reading.** Without this, agents
-tend to skim or jump ahead to code generation. The explicit ordering
-ensures the agent processes architecture before acting.
+**Tiered loading prevents context window waste.** `agent-context.md`
+(~120 lines) is the only thing always read. Subsystem docs and
+`patterns.md` are conditional — the agent reads them only when the
+task touches a non-trivial subsystem or creates a new file of an
+established type. A bug fix in the storage layer doesn't need the UI
+subsystem doc.
 
-**Step 5 forces comprehension.** Requiring the agent to state its
-understanding before writing code is the closest you can get to
-ensuring depth. If the agent's summary is wrong, it reveals a
-misunderstanding before code is written.
-
-**Step 3 prevents pattern drift.** Agents default to generating code
-from their training data. Explicitly requiring pattern lookup before
-file creation ensures they follow project conventions, not generic
-patterns.
+**Patterns help most where they apply.** `patterns.md` is most useful
+when you're about to create a new file of an established type
+(handler, migration, test, etc.). For small or one-off edits, forcing
+a pattern lookup is overhead with no payoff — and on tasks where the
+right answer is "this case is different," it can actively constrain
+the agent away from the correct solution.
 
 ## Re-running
 

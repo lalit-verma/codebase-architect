@@ -511,37 +511,15 @@ Tell the user:
 > Create the file if it doesn't exist.
 >
 > ```
-> ## Codebase Context — Read Before Every Task
+> ## Codebase Context
 >
-> Before starting any task in this repository, follow these steps in
-> order. Do not skip steps. Do not start writing code until you have
-> completed the reading.
+> Read `agent-docs/agent-context.md` once at session start — it has
+> the architecture map, key patterns, and conventions.
 >
-> ### Step 1: Load core context (always)
-> Read `agent-docs/agent-context.md` fully. This contains the
-> architecture map, code patterns, conventions, and anti-patterns.
-> Internalize the patterns and constraints before proceeding.
->
-> ### Step 2: Load task-relevant subsystem docs
-> Identify which subsystem(s) your task touches based on the
-> architecture map. Read the corresponding
-> `agent-docs/subsystems/{name}.md`. If sub-module docs exist
-> in a subdirectory, read those too.
->
-> ### Step 3: Check patterns before creating new files
-> Before creating any new file, read `agent-docs/patterns.md` and
-> follow the established pattern for that file type. Quote the
-> specific pattern you are following.
->
-> ### Step 4: Check constraints before architectural changes
-> If changing subsystem interactions, dependencies, or contracts —
-> read `agent-docs/decisions.md` and
-> `agent-docs/uncertainties.md` first.
->
-> ### Step 5: Confirm your understanding
-> Before writing code, state which subsystem(s) you are working in,
-> which patterns you will follow (quote the specific pattern from
-> patterns.md), and any constraints that apply. Then proceed.
+> For non-trivial work, also consult the relevant
+> `agent-docs/subsystems/{name}.md` and `agent-docs/patterns.md`
+> before creating new files of an established type. Skip both for
+> small or self-contained edits.
 > ```
 >
 > ---
