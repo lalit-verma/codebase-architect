@@ -49,10 +49,11 @@ demand during analysis:
 - `shared/references/subsystem-mapping-rubric.md` — subsystem qualification
 - `shared/references/checkpoint-template.md` — checkpoint format
 - `shared/references/agent-context-rules.md` — agent-context generation
+- `shared/references/nano-context-rules.md` — nano-digest generation
 - `shared/references/pattern-detection-guide.md` — pattern detection
 - `shared/references/validation-rules.md` — self-check criteria per phase
 - `shared/references/scope-selection-rules.md` — monorepo scope selection
-- `shared/templates/` — output document templates
+- `shared/templates/` — output document templates (incl. `agent-context-nano-template.md`)
 - `shared/examples/` — quality calibration targets
 
 ## Workflow
@@ -100,6 +101,8 @@ Read all existing docs first.
 0. **Capture version info** — run `git rev-parse --short=7 HEAD` for source commit. Record UTC timestamp. Apply version header (`> Generated: {YYYY-MM-DD HH:MM UTC} | v1 | {short_sha}`) to ALL generated files.
 1. **Write `agent-docs/agent-context.md`** — PRIMARY OUTPUT. Under 120 lines. No tables. No prose. Every line actionable. Use `shared/references/agent-context-rules.md` and `shared/examples/agent-context-example.md` for quality calibration.
 1b. **Self-validate agent-context.md** — under 120 lines, no tables, no confidence labels, all 7 sections, file paths in every map/pattern/contract entry. Fix before continuing.
+1c. **Write `agent-docs/agent-context-nano.md`** — INLINED NANO-DIGEST. Strict subset of `agent-context.md` (no new facts). Max 40 lines. Zero `agent-docs/` references. 5 sections only: What this is, Where things live (5-8 paths), 2 most-used patterns, 2-3 highest-blast-radius Do NOT entries. Use `shared/references/nano-context-rules.md` and `shared/templates/agent-context-nano-template.md`. This file is meant to be pasted directly into the user's `.cursorrules` so the load-bearing context lives in the system prompt without triggering long-context fallback.
+1d. **Self-validate agent-context-nano.md** — line count ≤ 40, zero `agent-docs/` references, no tables, no confidence labels, all 5 sections, every fact also present in `agent-context.md`. Fix before continuing.
 2. **Write `agent-docs/patterns.md`** — consolidated code and test conventions. Present to user for confirmation before writing.
 2b. **Write `agent-docs/routing-map.md`** — machine-readable YAML routing from tasks to subsystem docs, pattern docs, template files, and test templates. Derived from subsystem docs and patterns.md. Lookup table only, no narrative.
 3. **Write `agent-docs/agent-brief.md`** — compact architecture (<100 lines). Include Common Change Playbooks.
@@ -108,7 +111,7 @@ Read all existing docs first.
 6. **Write `agent-docs/glossary.md`** — project terms.
 7. **Write `agent-docs/uncertainties.md`** — all unresolved questions.
 8. **Write flow docs** — only if cross-cutting flows warrant it.
-9. **Write `agent-docs/agent-protocol.md`** — wiring instructions for Claude Code, Codex, Cursor.
+9. **Write `agent-docs/agent-protocol.md`** — wiring instructions for Claude Code, Codex, Cursor using the **hybrid wiring strategy**: inline the contents of `agent-context-nano.md` into each platform section (do not reference by path), followed by a single Explore-enrichment line pointing at `agent-docs/agent-context.md` and the deeper docs. Do NOT generate any 5-step "before every task" ritual or "quote the specific pattern" instruction — those triggered cost without quality gains in benchmark testing.
 9b. **Quality smoke test** — read agent-context.md and answer 5 diagnostic questions (where to create new entity, what pattern to follow, what not to do, which subsystem handles primary flow, key contracts). If any answer cannot be found in agent-context.md alone, fix the doc.
 10. **Update state** — set phase_completed: 3, record all generated files
 11. **Report completion** — list all generated files, usage instructions
@@ -118,7 +121,8 @@ Read all existing docs first.
 ```
 agent-docs/
   .analysis-state.md
-  agent-context.md         ** PRIMARY: compact context for coding agents **
+  agent-context.md            compact context for coding agents (full)
+  agent-context-nano.md    ** INLINED NANO-DIGEST for .cursorrules **
   patterns.md              ** code patterns — "how to add a new X" **
   agent-brief.md              compact architecture map
   agent-protocol.md           wiring instructions for agents

@@ -18,9 +18,10 @@ codebase context.
 Look for shared reference files at `~/.claude/codebase-analysis/`.
 If available, load on demand:
 - `references/agent-context-rules.md` — agent-context generation rules
+- `references/nano-context-rules.md` — nano-digest generation rules
 - `references/pattern-detection-guide.md` — pattern consolidation
 - `references/validation-rules.md` — self-check criteria and smoke test
-- `templates/` — all output templates
+- `templates/` — all output templates (including `agent-context-nano-template.md`)
 - `examples/agent-context-example.md` — quality calibration target
 
 ---
@@ -177,6 +178,84 @@ load it and run the Phase 3 self-validation checks. Otherwise:
 7. Every Key contracts entry has a file:line reference
 
 If any check fails, fix agent-context.md before proceeding.
+
+### Step 1c: Generate `agent-docs/agent-context-nano.md` — INLINED NANO-DIGEST
+
+Generate the nano-digest immediately after `agent-context.md`. The
+nano-digest is a strict subset of `agent-context.md` designed to be
+pasted directly into the user's `CLAUDE.md` so it lives in the
+system prompt. This is the load-bearing wiring fix for cost: by
+inlining the nano-digest, the main thread does not need to Read
+`agent-docs/` files for common tasks.
+
+If `~/.claude/codebase-analysis/references/nano-context-rules.md`
+exists, load and follow it strictly. If
+`~/.claude/codebase-analysis/templates/agent-context-nano-template.md`
+exists, use its structure.
+
+**Hard rules for agent-context-nano.md:**
+- 40 lines maximum (target 25-35)
+- ~1.5-2.5K tokens
+- **Strict subset of `agent-context.md`** — no new facts
+- **Zero references to `agent-docs/`** anywhere in the file
+- No tables, no confidence labels
+- 5 sections only: What this is, Where things live (5-8 paths), 2
+  patterns (most-used), Do NOT (2-3 entries)
+
+**Structure:**
+
+```markdown
+# {Repo Name} — Quick Context
+
+> Inlined nano-context for coding agents.
+> Generated: {YYYY-MM-DD} | v1 | {short_sha}
+
+## What this is
+{1-2 sentences from agent-context.md's "What this repo is", trimmed}
+
+## Where things live
+- `{path}/` — {purpose}
+{5-8 entries — top of agent-context.md's Architecture map by importance}
+
+## How to add a new {most common thing}
+1. Create `{path}` following `{example file}`
+2. {step with concrete file reference}
+3. Register in `{file:line}`
+4. Test at `{test path}` following `{test example}`
+
+## How to add a new {second most common thing}
+1. Create `{path}` following `{example file}`
+2. {step with concrete file reference}
+3. Register in `{file:line}`
+4. Test at `{test path}` following `{test example}`
+
+## Do NOT
+- {anti-pattern} — {1-line reason}
+- {anti-pattern} — {1-line reason}
+{2-3 entries — highest blast radius from agent-context.md's Do NOT}
+```
+
+**Content sourcing (do not re-explore):**
+- **What this is** — first 1-2 sentences of `agent-context.md`'s "What this repo is"
+- **Where things live** — top 5-8 entries of `agent-context.md`'s "Architecture map" by navigation centrality (entrypoints, primary subsystems, registration points)
+- **2 patterns** — the 2 patterns from `agent-context.md`'s "Key patterns" with the highest file count in the codebase
+- **Do NOT** — the 2-3 entries from `agent-context.md`'s "Do NOT" with the highest blast radius
+
+### Step 1d: Self-Validate agent-context-nano.md
+
+Before proceeding to patterns.md, verify the nano-digest:
+
+1. Count lines — must be ≤ 40
+2. Grep for `agent-docs/` — must find zero matches
+3. Scan for `|` characters outside code blocks — no tables
+4. Scan for "Confirmed:", "Inference:", "UNCERTAIN:", "NEEDS CLARIFICATION:" — none allowed
+5. Verify all 5 sections present: What this is, Where things live, 2 pattern sections, Do NOT
+6. Every "Where things live" entry has a path in backticks
+7. Every pattern has at least 3 numbered steps with file paths
+8. Every Do NOT entry has a 1-line reason
+9. Cross-check: every fact in the nano-digest also appears in `agent-context.md`
+
+If any check fails, fix agent-context-nano.md before proceeding.
 
 ### Step 2: Generate `agent-docs/patterns.md`
 
@@ -426,32 +505,42 @@ something not covered in subsystem docs. Write to
 
 ### Step 9: Generate `agent-docs/agent-protocol.md`
 
-Generate copy-paste-ready wiring instructions for all 3 platforms.
+Generate copy-paste-ready wiring instructions for all 3 platforms
+using the **hybrid wiring strategy**: inlined nano-digest + Explore
+enrichment pointer.
 
 If `~/.claude/codebase-analysis/templates/agent-protocol-template.md`
-exists, use its structure. Otherwise use this format:
+exists, use its structure. The template will instruct the user to
+paste the contents of `agent-docs/agent-context-nano.md` directly
+into their `CLAUDE.md` / `AGENTS.md` / `.cursorrules`, followed by
+a single Explore-enrichment instruction pointing at the deeper docs.
+
+Inline the actual nano-digest contents into the generated
+`agent-protocol.md` (do not reference by path) so the user has a
+single self-contained file to copy from.
+
+Each platform section should follow this shape:
 
 ```markdown
-# Agent Protocol — How to Use These Docs
+## For {Platform}
+Add to your `{config file}`:
 
-## For Claude Code
-Add this to your repo's `CLAUDE.md`:
-> Before starting any coding task:
-> 1. Read `agent-docs/agent-context.md` for architecture context.
-> 2. Read the relevant `agent-docs/subsystems/{name}.md`.
-> 3. Read `agent-docs/patterns.md` to match conventions. Quote the
->    specific pattern you are following.
-> 4. If making structural changes, read `agent-docs/decisions.md`.
-> 5. If near uncertain areas, check `agent-docs/uncertainties.md`.
+---
+### Codebase Context
 
-## For Codex
-Add this to your repo's `AGENTS.md`:
-> [same instructions adapted for Codex]
+{actual contents of agent-context-nano.md inlined here}
 
-## For Cursor
-Create `.cursor/rules/architecture-context.mdc`:
-> [same instructions as a Cursor rule with alwaysApply: true]
+If you spawn an Explore subagent for codebase research, point it at
+`agent-docs/agent-context.md` as a starting heuristic. Deeper docs:
+`agent-docs/subsystems/{name}.md`, `agent-docs/patterns.md`,
+`agent-docs/decisions.md`. Do not read these from the main thread.
+---
 ```
+
+Critical: do NOT generate any 5-step "before every task" ritual,
+"do not skip steps" framing, or "quote the specific pattern"
+instruction. The benchmark showed those triggered model escalation
+for no quality gain. The hybrid wiring is intentionally minimal.
 
 ### Step 9b: Quality Smoke Test
 
@@ -487,8 +576,9 @@ Tell the user:
 > **Phase 3 of 3 complete. Documentation set is ready.**
 >
 > Generated:
-> - `agent-docs/agent-context.md` — **primary: compact context for
->   coding agents**
+> - `agent-docs/agent-context.md` — compact agent context (full)
+> - `agent-docs/agent-context-nano.md` — **inlined nano-digest for
+>   CLAUDE.md (load-bearing wiring)**
 > - `agent-docs/patterns.md` — code patterns and conventions
 > - `agent-docs/routing-map.md` — task-to-doc routing (machine-readable)
 > - `agent-docs/agent-brief.md` — compact architecture
@@ -501,30 +591,41 @@ Tell the user:
 >
 > ---
 >
-> **IMPORTANT: Wire agent-docs into your coding agent.**
+> **IMPORTANT: Wire agent-docs into your coding agent (hybrid wiring).**
 >
-> Follow the instructions in `agent-docs/agent-protocol.md` — it has
-> copy-paste-ready snippets for Claude Code, Codex, and Cursor.
+> The wiring has two parts:
 >
-> Or add the following block to your agent config file (`CLAUDE.md` for
-> Claude Code, `.cursorrules` for Cursor, `AGENTS.md` for Codex).
-> Create the file if it doesn't exist.
+> 1. **Paste the contents of `agent-docs/agent-context-nano.md`**
+>    directly into your `CLAUDE.md` (or `AGENTS.md` for Codex,
+>    `.cursorrules` for Cursor). Create the file if it does not exist.
+>    The nano-digest is meant to live in the system prompt, not be
+>    referenced by path.
 >
-> ```
-> ## Codebase Context
+> 2. **Add this single line below the pasted nano-digest:**
 >
-> Read `agent-docs/agent-context.md` once at session start — it has
-> the architecture map, key patterns, and conventions.
+>    ```
+>    If you spawn an Explore subagent for codebase research, point
+>    it at `agent-docs/agent-context.md` as a starting heuristic.
+>    Deeper docs: `agent-docs/subsystems/{name}.md`,
+>    `agent-docs/patterns.md`, `agent-docs/decisions.md`. Do not
+>    read these from the main thread.
+>    ```
 >
-> For non-trivial work, also consult the relevant
-> `agent-docs/subsystems/{name}.md` and `agent-docs/patterns.md`
-> before creating new files of an established type. Skip both for
-> small or self-contained edits.
-> ```
+> Why this shape: benchmark data showed that main-thread Reads of
+> `agent-docs/` triggered long-context fallback to larger models,
+> inflating cost without a quality gain. Inlining the nano-digest
+> puts the load-bearing context in the system prompt (no Reads, no
+> accumulation) while leaving the deeper docs available to Explore
+> subagents that run in their own context.
+>
+> The full copy-paste-ready snippets for all 3 platforms (with the
+> nano-digest already inlined) are in `agent-docs/agent-protocol.md`.
 >
 > ---
 >
 > **To update:** Re-run any phase. It augments existing `agent-docs/`.
+> `agent-context-nano.md` is regenerated entirely on re-run; you will
+> need to re-paste it into your agent config.
 
 ---
 

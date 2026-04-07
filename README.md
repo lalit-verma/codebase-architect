@@ -7,16 +7,24 @@ start and write higher-quality code than a cold start.
 
 ## What It Produces
 
-The primary output is `agent-docs/agent-context.md` — a compact file
-(under 120 lines) that a coding agent loads at session start. It
-contains the architecture map, code patterns to follow, conventions,
-anti-patterns, and key contracts. No prose, every line actionable.
+The two load-bearing outputs are:
+
+- **`agent-docs/agent-context-nano.md`** — a ≤40 line nano-digest that
+  you paste directly into your `CLAUDE.md` / `AGENTS.md` /
+  `.cursorrules`. Lives in the agent's system prompt. Handles common
+  tasks (Easy bucket) without any tool-call reads. **This is the
+  load-bearing wiring fix** — see "Why hybrid wiring" below.
+- **`agent-docs/agent-context.md`** — a ~120 line compact context file
+  that an Explore subagent uses as a starting heuristic for deeper
+  research. Handles medium/hard tasks where the nano-digest is
+  insufficient.
 
 Full output written to `agent-docs/` in your target repo:
 
 ```
 agent-docs/
-  agent-context.md       ** PRIMARY: compact context for coding agents **
+  agent-context-nano.md  ** INLINED nano-digest (paste into CLAUDE.md) **
+  agent-context.md          compact context for Explore subagents
   patterns.md            ** code patterns — "how to add a new X" **
   agent-brief.md            compact architecture map
   agent-protocol.md         wiring instructions for agents
@@ -96,105 +104,123 @@ to run next.
 ## After Analysis: Wire agent-docs Into Your Coding Agent
 
 After Phase 3 completes, you need to wire the generated documentation
-into your coding agent so it loads context at session start. This is
-the critical step — without it, the agent won't know the docs exist.
+into your coding agent. This is the critical step — without it, the
+agent won't know the docs exist.
 
-The wiring uses a **tiered loading strategy**: always load the compact
-context file, then selectively load deeper docs based on the task. This
-prevents burning the agent's context window on files irrelevant to the
-current task.
+The wiring uses a **hybrid two-part strategy**:
+
+1. **Paste the nano-digest** (`agent-docs/agent-context-nano.md`)
+   directly into your agent config file (`CLAUDE.md`, `AGENTS.md`,
+   or `.cursorrules`). Do not reference it by path — paste the actual
+   contents. The nano-digest is meant to live in the system prompt.
+2. **Add a single Explore-enrichment line** below the nano-digest
+   telling subagents where the deeper docs live.
+
+The same wiring works for all three platforms — only the config file
+name changes.
 
 ---
 
 ### Claude Code
 
-Add this block to your `CLAUDE.md` (create it at repo root if it
-doesn't exist):
+Open your `CLAUDE.md` (create it at repo root if it doesn't exist),
+then:
 
-```markdown
-## Codebase Context
+1. Paste the entire contents of `agent-docs/agent-context-nano.md`.
+2. Below it, add this line:
 
-Read `agent-docs/agent-context.md` once at session start — it has the
-architecture map, key patterns, and conventions.
-
-For non-trivial work, also consult the relevant
-`agent-docs/subsystems/{name}.md` and `agent-docs/patterns.md` before
-creating new files of an established type. Skip both for small or
-self-contained edits.
 ```
+If you spawn an Explore subagent for codebase research, point it at
+`agent-docs/agent-context.md` as a starting heuristic. Deeper docs:
+`agent-docs/subsystems/{name}.md`, `agent-docs/patterns.md`,
+`agent-docs/decisions.md`. Do not read these from the main thread.
+```
+
+Done. The full copy-paste-ready snippet (with the nano-digest already
+inlined) is also written to `agent-docs/agent-protocol.md` after
+Phase 3 completes.
 
 ---
 
 ### Cursor
 
-Add this block to your `.cursorrules` (create it at repo root if it
-doesn't exist):
-
-```markdown
-## Codebase Context
-
-Read `agent-docs/agent-context.md` once at session start — it has the
-architecture map, key patterns, and conventions.
-
-For non-trivial work, also consult the relevant
-`agent-docs/subsystems/{name}.md` and `agent-docs/patterns.md` before
-creating new files of an established type. Skip both for small or
-self-contained edits.
-```
+Same as Claude Code, but the target file is `.cursorrules` (or
+`.cursor/rules/architecture-context.mdc` with `alwaysApply: true`).
 
 ---
 
 ### Codex
 
-Add this block to your `AGENTS.md` (create it at repo root if it
-doesn't exist, or append to existing):
-
-```markdown
-## Codebase Context
-
-Read `agent-docs/agent-context.md` once at session start — it has the
-architecture map, key patterns, and conventions.
-
-For non-trivial work, also consult the relevant
-`agent-docs/subsystems/{name}.md` and `agent-docs/patterns.md` before
-creating new files of an established type. Skip both for small or
-self-contained edits.
-```
+Same as Claude Code, but the target file is `AGENTS.md`.
 
 ---
 
-### Why this structure works
+### Why hybrid wiring
 
-**Lean by default.** Earlier versions of this framework prescribed a
-five-step ritual ("Step 1...Step 5, do not skip steps, quote the
-specific pattern, state your understanding"). Benchmark runs showed
-the ritual was the dominant cost driver: it pushed agents off cheaper
-models onto reasoning-heavy ones for tasks that did not need it,
-inflated cost without improving pass rates, and added overhead on
-trivial edits where the docs were not relevant. The current wiring
-loads the compact context once and trusts the agent to pull deeper
-docs only when the task warrants it.
+The framework went through several wiring iterations, each driven by
+benchmark data. The current shape is the result of three findings:
 
-**Tiered loading prevents context window waste.** `agent-context.md`
-(~120 lines) is the only thing always read. Subsystem docs and
-`patterns.md` are conditional — the agent reads them only when the
-task touches a non-trivial subsystem or creates a new file of an
-established type. A bug fix in the storage layer doesn't need the UI
-subsystem doc.
+**1. Main-thread Reads of `agent-docs/` inflate cost.** Early versions
+of the framework had the agent read `agent-context.md`, plus subsystem
+docs, plus `patterns.md` at session start. Benchmarks showed this
+triggered long-context fallback to larger models — even though token
+counts were similar, the cost was 11% higher because the larger model
+costs ~5× more per token. The mechanism is mechanical: once accumulated
+context exceeds the smaller model's window, the provider falls back.
 
-**Patterns help most where they apply.** `patterns.md` is most useful
-when you're about to create a new file of an established type
-(handler, migration, test, etc.). For small or one-off edits, forcing
-a pattern lookup is overhead with no payoff — and on tasks where the
-right answer is "this case is different," it can actively constrain
-the agent away from the correct solution.
+**2. Pure subagent routing trades cost for quality.** A later iteration
+moved all doc reads into a research subagent. This fixed cost (the
+main thread stayed within the cheaper model's window) but tanked
+quality on the Medium-difficulty bucket: lenient pass rate fell from
+70% to 30%. The reason is **pattern fidelity** — when patterns are
+read directly, the writer sees them verbatim and reproduces specifics.
+When patterns come back as a subagent summary, the writer reproduces
+the gist but loses the details that make strict pass rates work.
+
+**3. The fix is to inline the load-bearing context, not reference it.**
+The nano-digest is small enough to live in the system prompt
+(~1.5–2.5K tokens) without triggering any context-window threshold,
+and it contains the actual pattern recipes verbatim — so the writer
+gets full pattern fidelity without doing any Reads. The deeper docs
+remain available to Explore subagents when the task genuinely needs
+them, which keeps the framework's full architecture map useful for
+medium/hard tasks without polluting the main thread.
+
+**How it scales by task difficulty:**
+
+- **Easy tasks** rely entirely on the inlined nano-digest. No subagent
+  spawned. No Reads of `agent-docs/`. Stays in the cheaper model.
+- **Medium tasks** use the nano-digest as a starting point and spawn
+  an Explore subagent to read `agent-context.md` and the relevant
+  subsystem doc. Main thread still doesn't accumulate `agent-docs/`
+  content; subagent returns a summary plus any verbatim snippets the
+  task needs.
+- **Hard tasks** lean heavily on the Explore subagent to navigate
+  multiple subsystem docs, decisions, and flows. The nano-digest
+  still serves as the main thread's anchor for "where am I in this
+  codebase."
+
+**What is intentionally absent from the wiring:**
+
+- No "before every task" ritual ("Step 1: read X. Step 2: identify
+  subsystem...")
+- No "do not skip steps" framing
+- No "quote the specific pattern from patterns.md" instruction
+- No requirement to "state your understanding before writing code"
+- No reference to `agent-docs/` paths *inside* the inlined nano-digest
+
+Each of these was tested and removed because it inflated cost or
+added overhead without a corresponding quality gain.
 
 ## Re-running
 
 All phases support re-runs on repos with existing `agent-docs/`. The
 tool reads existing state and augments rather than overwrites.
-`agent-context.md` and `patterns.md` are regenerated entirely on re-run
-because stale context is worse than no context.
+`agent-context.md`, `agent-context-nano.md`, and `patterns.md` are
+regenerated entirely on re-run because stale context is worse than no
+context. After a re-run you must re-paste the new
+`agent-docs/agent-context-nano.md` into your `CLAUDE.md` (or
+`AGENTS.md` / `.cursorrules`) — Phase 3 will remind you.
 
 ## Evaluation
 
@@ -240,11 +266,13 @@ shared/
     subsystem-mapping-rubric.md     subsystem identification
     checkpoint-template.md          mandatory checkpoint format
     agent-context-rules.md          agent-context generation rules
+    nano-context-rules.md           nano-digest generation rules
     pattern-detection-guide.md      pattern detection method
     validation-rules.md             self-check criteria per phase
     scope-selection-rules.md        monorepo scope selection
   templates/                        output document templates
     agent-context-template.md
+    agent-context-nano-template.md
     agent-protocol-template.md
     patterns-template.md
     routing-map-template.md

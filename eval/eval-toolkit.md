@@ -261,10 +261,26 @@ The last mile — connecting generated docs to the coding agent.
 Check for:
 
 - **docs-schema.md** defines the full output tree with priority order
-  and consumer labels (coding agents vs humans vs both)
-- **agent-protocol template** provides copy-paste wiring for all 3
-  platforms with: tiered loading strategy, comprehension checkpoint
-  (quote requirement), routing-map.md mention
+  and consumer labels (coding agents vs humans vs both), and
+  documents the hybrid wiring strategy (inlined nano-digest +
+  Explore-enrichment line)
+- **agent-context-nano template** exists at
+  `shared/templates/agent-context-nano-template.md` with:
+  - Hard ceiling of 40 lines documented
+  - 5 required sections (What this is, Where things live, 2 patterns,
+    Do NOT)
+  - Explicit prohibition on `agent-docs/` references inside the file
+  - Sourcing rules tying every nano section back to a section of
+    `agent-context.md`
+- **nano-context-rules.md** exists at
+  `shared/references/nano-context-rules.md` with hard constraints,
+  required sections, exclusions table, and quality check list
+- **agent-protocol template** provides hybrid wiring for all 3
+  platforms with: a placeholder for the inlined nano-digest, the
+  Explore-enrichment line (point at `agent-docs/agent-context.md`,
+  list deeper docs, prohibit main-thread reads). Must NOT include a
+  5-step loading protocol or "quote the specific pattern"
+  requirement — those were removed in the hybrid wiring change.
 - **routing-map template** defines machine-readable YAML structure
   for task-to-doc routing with: subsystem_routing (owns_paths,
   key_files, key_tests, common_tasks) and pattern_routing
@@ -272,8 +288,10 @@ Check for:
 - **Version tracking** across all templates: standardized header
   format, git commit capture instruction in synthesize commands,
   version fields in .analysis-state.md schema
-- **README.md** includes complete wiring instructions for all 3
-  platforms with the full 5-step loading protocol
+- **README.md** includes the hybrid wiring instructions for all 3
+  platforms (paste nano-digest into config + add Explore-enrichment
+  line) and the rationale section ("Why hybrid wiring") that ties
+  the design to the benchmark findings
 
 ---
 

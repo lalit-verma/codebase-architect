@@ -11,12 +11,16 @@ secondary benefit. Every output decision should be evaluated against:
 
 1. Generate a compact, actionable agent-context file that a coding agent
    loads at session start to gain deep codebase understanding.
-2. Detect and document recurring code patterns so agents follow
+2. Generate an even smaller **nano-digest** that the user pastes
+   directly into their agent config (`CLAUDE.md` / `AGENTS.md` /
+   `.cursorrules`) so the load-bearing context lives in the system
+   prompt without triggering main-thread Reads.
+3. Detect and document recurring code patterns so agents follow
    established conventions rather than inventing new ones.
-3. Map architectural boundaries, contracts, and flows with evidence.
-4. Capture design decisions and constraints that prevent agents from
+4. Map architectural boundaries, contracts, and flows with evidence.
+5. Capture design decisions and constraints that prevent agents from
    making bad changes.
-5. Preserve uncertainty explicitly — false confidence is worse than
+6. Preserve uncertainty explicitly — false confidence is worse than
    admitted gaps.
 
 ## Hard Rules
@@ -42,7 +46,8 @@ folder.
 ```
 agent-docs/
   .analysis-state.md          # cross-phase state (internal)
-  agent-context.md            # PRIMARY: compact agent-loadable context
+  agent-context.md            # compact agent-loadable context (full, ~120 lines)
+  agent-context-nano.md       # INLINED NANO-DIGEST (≤40 lines) — load-bearing wiring
   patterns.md                 # detected code patterns and conventions
   agent-brief.md              # compact architecture map
   agent-protocol.md           # wiring instructions for agents
@@ -64,12 +69,15 @@ agent-docs/
 
 When making trade-offs about depth, token budget, or time:
 
-1. `agent-context.md` — highest priority. The single file a coding agent
-   loads to become effective.
-2. `patterns.md` — actionable "how to add a new X" recipes.
-3. `agent-brief.md` — compact architecture for deeper context loading.
-4. `subsystems/*.md` — on-demand deep reference per subsystem.
-5. Everything else — supporting documentation.
+1. `agent-context.md` — highest priority. The compact context file a
+   coding agent (or its Explore subagent) loads on demand.
+2. `agent-context-nano.md` — derived from `agent-context.md`. The
+   load-bearing wiring fix: pasted directly into the user's agent
+   config so the most-used context lives in the system prompt.
+3. `patterns.md` — actionable "how to add a new X" recipes.
+4. `agent-brief.md` — compact architecture for deeper context loading.
+5. `subsystems/*.md` — on-demand deep reference per subsystem.
+6. Everything else — supporting documentation.
 
 ## The Three Phases
 
@@ -108,18 +116,25 @@ Internal steps:
 
 ### Phase 3: Synthesize
 
-Run once per repo. Generate agent-context.md FIRST, then patterns.md,
-then remaining documentation.
+Run once per repo. Generate agent-context.md FIRST, then the nano-digest
+(strict subset), then patterns.md, then remaining documentation.
 
 Internal steps:
 1. Read all existing agent-docs/
-2. Generate `agent-docs/agent-context.md` (primary output)
+2. Generate `agent-docs/agent-context.md` (compact context, ~120 lines)
 2b. Self-validate agent-context.md (see validation-rules.md Phase 3)
+2c. Generate `agent-docs/agent-context-nano.md` (≤40 line strict subset
+    of agent-context.md, designed to be inlined into the user's agent
+    config). See `references/nano-context-rules.md`.
+2d. Self-validate agent-context-nano.md (line count, zero `agent-docs/`
+    references, all 5 sections, every fact also in agent-context.md)
 3. Generate `agent-docs/patterns.md` (semi-automated: propose, confirm)
 4. Generate remaining docs (agent-brief, index, decisions, glossary,
-   uncertainties, flow docs, agent-protocol)
+   uncertainties, flow docs, agent-protocol with the nano-digest
+   inlined into each platform section)
 4b. Run quality smoke test (see validation-rules.md Phase 3 smoke test)
-5. Report completion with agent integration instructions
+5. Report completion with hybrid wiring instructions (paste nano-digest
+   into agent config + add Explore-enrichment line)
 
 ## State Persistence
 
@@ -151,8 +166,11 @@ All phases support re-runs on repos with existing `agent-docs/`:
 - Augment rather than overwrite — preserve accurate sections.
 - Flag new, removed, or changed subsystems.
 - Reset pending status for subsystems that changed significantly.
-- Regenerate `agent-context.md` and `patterns.md` entirely on re-run
-  (they are compact enough to rewrite; stale context is harmful).
+- Regenerate `agent-context.md`, `agent-context-nano.md`, and
+  `patterns.md` entirely on re-run (they are compact enough to
+  rewrite; stale context is harmful). Note: re-running invalidates
+  the user's pasted nano-digest in their agent config — re-run output
+  must remind them to re-paste.
 - Add update timestamp to modified files.
 
 ## Confidence and Clarification Labels
@@ -326,8 +344,9 @@ During analysis, load these files from the shared resources directory:
 - `references/subsystem-mapping-rubric.md` — subsystem identification
 - `references/checkpoint-template.md` — mandatory checkpoint format
 - `references/agent-context-rules.md` — agent-context generation rules
+- `references/nano-context-rules.md` — nano-digest generation rules
 - `references/pattern-detection-guide.md` — pattern detection method
 - `references/validation-rules.md` — self-check criteria per phase
 - `references/scope-selection-rules.md` — monorepo scope selection
-- `templates/` — output document structures
+- `templates/` — output document structures (incl. `agent-context-nano-template.md`)
 - `examples/` — quality calibration targets

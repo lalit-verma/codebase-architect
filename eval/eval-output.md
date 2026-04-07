@@ -85,6 +85,9 @@ other dimension scores. Check these FIRST before scoring dimensions.
 
 **Auto-FAIL D6 (caps overall at "Needs Work" max):**
 - agent-context.md is missing entirely
+- agent-context-nano.md is missing entirely (it is the load-bearing
+  wiring artifact — without it, the user has nothing to paste into
+  their agent config)
 - More than 3 expected files from the output set are missing
 
 These overrides apply after scoring. If a critical-fail is triggered,
@@ -99,11 +102,12 @@ Before scoring dimensions, verify the complete file set exists:
 ```
 agent-docs/
   .analysis-state.md          # internal state
-  agent-context.md            # PRIMARY
+  agent-context.md            # compact context (full, ~120 lines)
+  agent-context-nano.md       # INLINED NANO-DIGEST (≤40 lines) — load-bearing wiring
   patterns.md                 # pattern recipes
   routing-map.md              # task-to-doc routing
   agent-brief.md              # compact architecture
-  agent-protocol.md           # wiring instructions
+  agent-protocol.md           # wiring instructions (hybrid: inlined nano + Explore line)
   index.md                    # navigation hub
   system-overview.md          # top-level architecture
   decisions.md                # trade-offs
@@ -411,30 +415,83 @@ The routing map enables structured task-to-doc lookups.
 
 ---
 
-## Dimension 5: Wiring and Protocol
+## Dimension 5: Wiring and Protocol (Hybrid Wiring)
 
 **Weight: 1x**
 
 After analysis, the user needs clear instructions to wire docs into
-their coding agent.
+their coding agent. The framework uses a **hybrid wiring strategy**:
+the nano-digest is inlined into the user's agent config (lives in the
+system prompt), and a single Explore-enrichment line points subagents
+at the deeper docs.
+
+This dimension checks both `agent-protocol.md` and the standalone
+`agent-context-nano.md`.
 
 ### Checks
 
-1. **agent-protocol.md exists** with instructions for all 3 platforms
-   (Claude Code/CLAUDE.md, Codex/AGENTS.md, Cursor/.cursor/rules/).
+1. **agent-context-nano.md exists** as a standalone file in
+   `agent-docs/`. Verify:
+   - Line count ≤ 40
+   - Token estimate ~1.5–2.5K (rough check: ≤ 250 words is a good proxy)
+   - Zero references to `agent-docs/` paths anywhere in the file (grep
+     for `agent-docs/` — must return zero matches)
+   - No tables (no `|` outside code blocks)
+   - No confidence labels (`Confirmed:`, `Inference:`, `UNCERTAIN:`,
+     `NEEDS CLARIFICATION:`)
+   - All 5 sections present: `## What this is`, `## Where things live`,
+     two `## How to add a new {thing}` sections, `## Do NOT`
+   - Each pattern section has 3+ numbered steps with file paths
+   - Each Do NOT entry has a 1-line reason
+   - Cross-check: every fact in the nano-digest also appears in
+     `agent-context.md`. The nano is a strict subset, not a separate
+     analysis.
 
-2. **5-step loading protocol** present in each platform section:
-   Step 1 load core context, Step 2 load subsystem docs, Step 3 check
-   patterns, Step 4 check constraints, Step 5 confirm understanding.
+2. **agent-protocol.md exists** with instructions for all 3 platforms
+   (Claude Code/CLAUDE.md, Codex/AGENTS.md, Cursor/.cursorrules or
+   `.cursor/rules/architecture-context.mdc`).
 
-3. **Comprehension checkpoint.** Step 5 requires the agent to state
-   which subsystems, patterns, and constraints apply. Check for the
-   quote requirement ("quote the specific pattern you are following").
+3. **Each platform section inlines the nano-digest** verbatim. Do NOT
+   accept a section that merely references `agent-context-nano.md` by
+   path — the user is supposed to copy a self-contained block, and
+   the agent-protocol.md is supposed to make that copy-paste trivial.
 
-4. **Routing map mention.** Step 2 should mention routing-map.md as a
-   faster alternative to manual subsystem identification.
+4. **Each platform section includes the Explore-enrichment line**
+   below the inlined nano-digest. Format must mention:
+   - Spawning an Explore (or research) subagent for codebase research
+   - Pointing the subagent at `agent-docs/agent-context.md` as a
+     starting heuristic
+   - Listing the deeper docs (`agent-docs/subsystems/`,
+     `agent-docs/patterns.md`, `agent-docs/decisions.md`)
+   - An explicit instruction NOT to read these from the main thread
 
-5. **Version header present.**
+5. **Forbidden content in agent-protocol.md.** Auto-PARTIAL if any of
+   the following appear (these are remnants of earlier wiring versions
+   that benchmarks showed inflated cost without quality gain):
+   - "Step 1...Step 5" structured loading protocol
+   - "Do not skip steps" framing
+   - "Quote the specific pattern" requirement
+   - "State your understanding before writing code" / "Confirm your
+     understanding" instructions
+   - Instructions telling the main thread to read subsystem docs or
+     patterns.md directly (these belong in the Explore-enrichment line
+     for subagents only)
+
+6. **Version header present** on agent-context-nano.md and
+   agent-protocol.md.
+
+### Scoring
+
+- **PASS** — nano-digest exists and meets all structural checks;
+  agent-protocol.md inlines the nano content verbatim per platform
+  with the Explore-enrichment line; no forbidden content present
+- **PARTIAL** — nano-digest exists but has 1-2 structural issues, OR
+  agent-protocol.md references the nano by path instead of inlining,
+  OR the Explore-enrichment line is missing from one platform section,
+  OR forbidden content appears in agent-protocol.md
+- **FAIL** — nano-digest is missing entirely, OR agent-protocol.md is
+  missing, OR more than 2 platform sections lack the inlined nano,
+  OR the nano contains `agent-docs/` references (defeats the purpose)
 
 ---
 
