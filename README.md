@@ -121,24 +121,55 @@ name changes.
 
 ---
 
-### Claude Code
+### Claude Code (two-part wiring: nano in CLAUDE.md + PreToolUse hook)
 
-Open your `CLAUDE.md` (create it at repo root if it doesn't exist),
-then:
+Claude Code is the only platform with a documented PreToolUse hook
+mechanism, so it gets two layers of wiring that work together.
+
+**Part 1 — Inline the nano-digest into CLAUDE.md.** Open your
+`CLAUDE.md` (create it at repo root if it doesn't exist), then:
 
 1. Paste the entire contents of `agent-docs/agent-context-nano.md`.
 2. Below it, add this line:
 
 ```
-If you spawn an Explore subagent for codebase research, point it at
-`agent-docs/agent-context.md` as a starting heuristic. Deeper docs:
-`agent-docs/subsystems/{name}.md`, `agent-docs/patterns.md`,
-`agent-docs/decisions.md`. Do not read these from the main thread.
+For deeper context, use an Explore subagent on
+agent-docs/agent-context.md. Never read agent-docs/ files from
+the main thread (triggers long-context fallback).
 ```
 
-Done. The full copy-paste-ready snippet (with the nano-digest already
-inlined) is also written to `agent-docs/agent-protocol.md` after
-Phase 3 completes.
+**Part 2 — Install the PreToolUse hook.** The hook fires before every
+Glob/Grep tool call and reminds Claude (via the documented
+`hookSpecificOutput.additionalContext` mechanism) that the codebase
+context is already loaded and main-thread reads of `agent-docs/`
+should be avoided. This is mechanically stronger than relying on
+CLAUDE.md alone because the harness fires it just-in-time, at the
+moment the agent is about to search.
+
+```bash
+# From your target repo:
+mkdir -p .claude/hooks
+cp /path/to/codebase-analysis-skill/claude-code/hooks/pensieve-pretooluse.sh .claude/hooks/
+chmod +x .claude/hooks/pensieve-pretooluse.sh
+
+# If you don't already have a .claude/settings.json:
+cp /path/to/codebase-analysis-skill/claude-code/hooks/settings-snippet.json .claude/settings.json
+# If you do, merge the hooks.PreToolUse entry from settings-snippet.json
+# into your existing .claude/settings.json carefully.
+```
+
+Verify the hook produces the expected JSON before relying on it:
+
+```bash
+bash /path/to/codebase-analysis-skill/claude-code/hooks/smoke-test.sh
+```
+
+The smoke test prints next-step instructions for an end-to-end manual
+verification (open Claude Code in the target repo, trigger a Glob, and
+check the agent's response for awareness of the reminder).
+
+See `claude-code/hooks/README.md` for the full mechanism explanation
+and troubleshooting.
 
 ---
 

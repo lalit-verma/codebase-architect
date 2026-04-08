@@ -415,18 +415,25 @@ The routing map enables structured task-to-doc lookups.
 
 ---
 
-## Dimension 5: Wiring and Protocol (Hybrid Wiring)
+## Dimension 5: Wiring and Protocol (Hybrid Wiring + PreToolUse Hook)
 
 **Weight: 1x**
 
 After analysis, the user needs clear instructions to wire docs into
 their coding agent. The framework uses a **hybrid wiring strategy**:
-the nano-digest is inlined into the user's agent config (lives in the
-system prompt), and a single Explore-enrichment line points subagents
-at the deeper docs.
 
-This dimension checks both `agent-protocol.md` and the standalone
-`agent-context-nano.md`.
+- **All platforms** — the nano-digest is inlined into the user's agent
+  config (lives in the system prompt), and a single Explore-enrichment
+  line points subagents at the deeper docs.
+- **Claude Code only** — additionally, a `PreToolUse` hook fires
+  before every Glob/Grep call and injects a reminder via the
+  documented `hookSpecificOutput.additionalContext` mechanism. This is
+  the second wiring layer for Claude Code; Codex and Cursor don't have
+  an equivalent hook surface.
+
+This dimension checks `agent-context-nano.md`, `agent-protocol.md`,
+and the presence of the Claude Code hook artifacts in the framework
+repo.
 
 ### Checks
 
@@ -480,18 +487,54 @@ This dimension checks both `agent-protocol.md` and the standalone
 6. **Version header present** on agent-context-nano.md and
    agent-protocol.md.
 
+7. **PreToolUse hook artifacts present in the framework repo** (for
+   Claude Code wiring):
+   - `claude-code/hooks/pensieve-pretooluse.sh` exists and is
+     executable
+   - `claude-code/hooks/settings-snippet.json` exists and contains a
+     valid JSON object with the `hooks.PreToolUse` array structure,
+     a `Glob|Grep` matcher, and a command field that invokes the
+     hook script
+   - `claude-code/hooks/smoke-test.sh` exists and is executable
+   - `claude-code/hooks/README.md` exists and documents the
+     installation steps + the JSON output mechanism rationale
+   - The hook script uses the documented
+     `hookSpecificOutput.additionalContext` JSON output format, NOT
+     plain `echo` (plain stdout from PreToolUse hooks is only shown
+     in verbose mode and does not reach the agent)
+
+8. **Hook reference in agent-protocol.md (Claude Code section).** The
+   Claude Code section of `agent-protocol.md` must contain a Part 2
+   that walks the user through installing the PreToolUse hook
+   (copying the script, merging the settings snippet, running the
+   smoke test, and the manual end-to-end verification step). If the
+   Claude Code section is one-part (inline nano only), this is a
+   PARTIAL — the hook is the load-bearing wiring fix and its absence
+   from the wiring instructions is a regression.
+
+9. **Codex and Cursor sections do NOT mention the PreToolUse hook.**
+   Codex and Cursor don't have an equivalent hook mechanism. If their
+   sections include hook installation steps, that's a documentation
+   error — flag as PARTIAL.
+
 ### Scoring
 
 - **PASS** — nano-digest exists and meets all structural checks;
-  agent-protocol.md inlines the nano content verbatim per platform
-  with the Explore-enrichment line; no forbidden content present
-- **PARTIAL** — nano-digest exists but has 1-2 structural issues, OR
+  agent-protocol.md inlines the nano content verbatim per platform;
+  Claude Code section is two-part (inline nano + hook installation);
+  Codex/Cursor sections are one-part (inline nano only); hook
+  artifacts present in `claude-code/hooks/` and use the JSON output
+  format; no forbidden content
+- **PARTIAL** — nano-digest exists but has 1–2 structural issues, OR
   agent-protocol.md references the nano by path instead of inlining,
   OR the Explore-enrichment line is missing from one platform section,
-  OR forbidden content appears in agent-protocol.md
+  OR the Claude Code section is one-part (missing hook installation),
+  OR the hook script uses plain echo instead of JSON output, OR
+  forbidden content appears in agent-protocol.md
 - **FAIL** — nano-digest is missing entirely, OR agent-protocol.md is
   missing, OR more than 2 platform sections lack the inlined nano,
-  OR the nano contains `agent-docs/` references (defeats the purpose)
+  OR the nano contains `agent-docs/` references (defeats the purpose),
+  OR the hook script is absent from `claude-code/hooks/`
 
 ---
 

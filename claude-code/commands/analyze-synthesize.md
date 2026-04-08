@@ -507,40 +507,72 @@ something not covered in subsystem docs. Write to
 
 Generate copy-paste-ready wiring instructions for all 3 platforms
 using the **hybrid wiring strategy**: inlined nano-digest + Explore
-enrichment pointer.
+enrichment pointer + PreToolUse hook (Claude Code only).
 
 If `~/.claude/codebase-analysis/templates/agent-protocol-template.md`
-exists, use its structure. The template will instruct the user to
-paste the contents of `agent-docs/agent-context-nano.md` directly
-into their `CLAUDE.md` / `AGENTS.md` / `.cursorrules`, followed by
-a single Explore-enrichment instruction pointing at the deeper docs.
+exists, use its structure. The Claude Code section is two-part:
+(1) inline the nano-digest into `CLAUDE.md`, (2) install the
+PreToolUse hook from `claude-code/hooks/pensieve-pretooluse.sh` into
+`.claude/hooks/` and the settings snippet into `.claude/settings.json`.
+Codex and Cursor sections remain one-part (inline nano + Explore
+enrichment line) because those platforms don't have an equivalent
+PreToolUse hook mechanism as of when this was written.
 
 Inline the actual nano-digest contents into the generated
 `agent-protocol.md` (do not reference by path) so the user has a
-single self-contained file to copy from.
+single self-contained file to copy from. For Claude Code, also
+include the hook installation steps with concrete shell commands
+(see `claude-code/hooks/README.md` for the canonical install
+sequence).
 
-Each platform section should follow this shape:
+Claude Code section structure:
 
 ```markdown
-## For {Platform}
-Add to your `{config file}`:
+## For Claude Code
+
+Two-part wiring: inlined nano in CLAUDE.md plus a PreToolUse hook.
+
+### Part 1: Inline the nano-digest into CLAUDE.md
+---
+### Codebase Context
+
+{actual contents of agent-context-nano.md inlined here}
+
+For deeper context, use an Explore subagent on
+`agent-docs/agent-context.md`. Never read `agent-docs/` files from
+the main thread (triggers long-context fallback).
+---
+
+### Part 2: Install the PreToolUse hook
+1. mkdir -p .claude/hooks && cp .../pensieve-pretooluse.sh .claude/hooks/
+2. chmod +x .claude/hooks/pensieve-pretooluse.sh
+3. Merge .../settings-snippet.json into .claude/settings.json
+4. Verify with: bash .../smoke-test.sh
+5. Manual end-to-end check: trigger a Glob/Grep in Claude Code and
+   verify the agent's response references the codebase context
+```
+
+Codex and Cursor sections (one-part each):
+
+```markdown
+## For {Codex|Cursor}
+Add to your `{AGENTS.md|.cursorrules}`:
 
 ---
 ### Codebase Context
 
 {actual contents of agent-context-nano.md inlined here}
 
-If you spawn an Explore subagent for codebase research, point it at
-`agent-docs/agent-context.md` as a starting heuristic. Deeper docs:
-`agent-docs/subsystems/{name}.md`, `agent-docs/patterns.md`,
-`agent-docs/decisions.md`. Do not read these from the main thread.
+For deeper context, use an Explore subagent on
+`agent-docs/agent-context.md`. Never read `agent-docs/` files from
+the main thread (triggers long-context fallback).
 ---
 ```
 
 Critical: do NOT generate any 5-step "before every task" ritual,
 "do not skip steps" framing, or "quote the specific pattern"
-instruction. The benchmark showed those triggered model escalation
-for no quality gain. The hybrid wiring is intentionally minimal.
+instruction. The benchmark showed those triggered cost without
+quality gains. The hybrid wiring is intentionally minimal.
 
 ### Step 9b: Quality Smoke Test
 
@@ -593,39 +625,77 @@ Tell the user:
 >
 > **IMPORTANT: Wire agent-docs into your coding agent (hybrid wiring).**
 >
-> The wiring has two parts:
+> ### For Claude Code (three steps — TWO-PART WIRING)
 >
 > 1. **Paste the contents of `agent-docs/agent-context-nano.md`**
->    directly into your `CLAUDE.md` (or `AGENTS.md` for Codex,
->    `.cursorrules` for Cursor). Create the file if it does not exist.
->    The nano-digest is meant to live in the system prompt, not be
->    referenced by path.
+>    directly into your `CLAUDE.md`. Create the file if it does not
+>    exist. The nano-digest is meant to live in the system prompt, not
+>    be referenced by path.
 >
-> 2. **Add this single line below the pasted nano-digest:**
+> 2. **Add this line below the pasted nano-digest:**
 >
 >    ```
->    If you spawn an Explore subagent for codebase research, point
->    it at `agent-docs/agent-context.md` as a starting heuristic.
->    Deeper docs: `agent-docs/subsystems/{name}.md`,
->    `agent-docs/patterns.md`, `agent-docs/decisions.md`. Do not
->    read these from the main thread.
+>    For deeper context, use an Explore subagent on
+>    agent-docs/agent-context.md. Never read agent-docs/ files
+>    from the main thread (triggers long-context fallback).
 >    ```
 >
-> Why this shape: benchmark data showed that main-thread Reads of
-> `agent-docs/` triggered long-context fallback to larger models,
-> inflating cost without a quality gain. Inlining the nano-digest
-> puts the load-bearing context in the system prompt (no Reads, no
-> accumulation) while leaving the deeper docs available to Explore
-> subagents that run in their own context.
+> 3. **Install the PreToolUse hook** for harness-enforced wiring on
+>    Glob/Grep tool calls:
+>
+>    ```bash
+>    mkdir -p .claude/hooks
+>    cp /path/to/codebase-analysis-skill/claude-code/hooks/pensieve-pretooluse.sh .claude/hooks/
+>    chmod +x .claude/hooks/pensieve-pretooluse.sh
+>    # Merge claude-code/hooks/settings-snippet.json into .claude/settings.json
+>    ```
+>
+>    Verify the hook produces the expected JSON:
+>    ```bash
+>    bash /path/to/codebase-analysis-skill/claude-code/hooks/smoke-test.sh
+>    ```
+>
+>    Manual end-to-end check: in your target repo, ask Claude any
+>    question that triggers a Glob or Grep, and verify the agent's
+>    response references the codebase context reminder.
+>
+> ### For Codex / Cursor (two steps — ONE-PART WIRING)
+>
+> 1. **Paste `agent-docs/agent-context-nano.md`** into `AGENTS.md`
+>    (Codex) or `.cursorrules` (Cursor)
+> 2. **Add this line below it:**
+>    ```
+>    For deeper context, use an Explore subagent on
+>    agent-docs/agent-context.md. Never read agent-docs/ files
+>    from the main thread (triggers long-context fallback).
+>    ```
+>
+> Codex and Cursor don't have a PreToolUse-equivalent hook mechanism,
+> so the inlined nano + Explore guidance is the best-available wiring
+> for those platforms.
+>
+> ### Why this shape
+>
+> Benchmark data showed that main-thread reads of `agent-docs/`
+> triggered long-context fallback to larger models, inflating cost
+> without a quality gain. Inlining the nano-digest puts load-bearing
+> context in the system prompt (no Reads, no accumulation) while the
+> Explore subagent handles deeper questions in its own context. The
+> Claude Code PreToolUse hook adds harness-enforced reinforcement at
+> the moment the agent is most likely to violate the rule.
 >
 > The full copy-paste-ready snippets for all 3 platforms (with the
 > nano-digest already inlined) are in `agent-docs/agent-protocol.md`.
+> The hook script and settings snippet are in
+> `claude-code/hooks/` (in this repo).
 >
 > ---
 >
 > **To update:** Re-run any phase. It augments existing `agent-docs/`.
 > `agent-context-nano.md` is regenerated entirely on re-run; you will
-> need to re-paste it into your agent config.
+> need to re-paste it into your agent config. The PreToolUse hook does
+> NOT need to be reinstalled on re-runs — it picks up the new nano
+> automatically the next time it fires.
 
 ---
 
