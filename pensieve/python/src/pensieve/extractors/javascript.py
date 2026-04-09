@@ -541,20 +541,11 @@ def extract_javascript(path: Path) -> FileExtraction:
                         arrow = _extract_arrow_function(sub, source)
                         if arrow:
                             symbols.append(arrow)
-                    elif sub.type in ("function_expression", "arrow_function"):
-                        # Anonymous callable default export: create a Symbol
-                        # with synthetic name "<default>" so the graph layer
-                        # can detect it as a callable default.
-                        params_node = sub.child_by_field_name("parameters")
-                        symbols.append(Symbol(
-                            name="<default>",
-                            kind="function",
-                            line_start=sub.start_point[0] + 1,
-                            line_end=sub.end_point[0] + 1,
-                            signature=_first_line(sub, source),
-                            visibility="public",
-                            parameters=_extract_params(params_node, source) if params_node else [],
-                        ))
+                    # NOTE: anonymous callable default exports (function_expression,
+                    # arrow_function) produce Export(name="<default>") via
+                    # _extract_exports but do NOT create a synthetic Symbol.
+                    # The graph layer (B13) treats "<default>" export names
+                    # as inherently callable without a symbol table lookup.
 
             elif child.type == "lexical_declaration":
                 # Check for arrow function, require, or constant

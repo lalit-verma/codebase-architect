@@ -365,15 +365,28 @@ def build_graph(
     has_callable_default_export: set[str] = set()
     _CALLABLE_KINDS = frozenset({"function", "method"})
 
+    # Reserved name used by JS/TS extractors for anonymous callable
+    # default exports (export default function() {}, export default () => {}).
+    # This name does NOT appear in the symbol table — the graph layer
+    # treats it as inherently callable.
+    _ANON_DEFAULT = "<default>"
+
     for ext in extractions:
         symbols_by_file[ext.file_path] = {s.name for s in ext.symbols}
         symbol_kinds[ext.file_path] = {s.name: s.kind for s in ext.symbols}
         for exp in ext.exports:
             if exp.kind == "default":
-                # Check if the exported symbol is function-like
-                sym_kind = symbol_kinds[ext.file_path].get(exp.name)
-                if sym_kind in _CALLABLE_KINDS:
+                if exp.name == _ANON_DEFAULT:
+                    # Anonymous callable default (function expression or arrow).
+                    # The extractor already verified this at extraction time
+                    # by only emitting <default> for function_expression and
+                    # arrow_function AST nodes.
                     has_callable_default_export.add(ext.file_path)
+                else:
+                    # Named default: check if the symbol is function-like
+                    sym_kind = symbol_kinds[ext.file_path].get(exp.name)
+                    if sym_kind in _CALLABLE_KINDS:
+                        has_callable_default_export.add(ext.file_path)
 
     # Track imported names AND aliases for cross-file call resolution.
     # file_path → {local_name: (source_file_path, original_name, is_default)}

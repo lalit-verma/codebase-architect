@@ -157,6 +157,12 @@ class Export:
     For Go/Rust/Java, visibility is on the Symbol itself; Export
     entries are only generated for JS/TS where exports are explicit
     statements separate from declarations.
+
+    For anonymous default exports (``export default function() {}`` or
+    ``export default () => {}``), the name is the reserved sentinel
+    ``"<default>"``. This is NOT a source identifier — it signals to
+    the graph layer that the default export is an anonymous callable.
+    No corresponding Symbol entry exists for this name.
     """
 
     name: str

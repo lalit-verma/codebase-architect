@@ -37,6 +37,58 @@ def _scan_and_graph(repo):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Schema contract: <default> in exports, not in symbols
+# ---------------------------------------------------------------------------
+
+
+class TestAnonDefaultSchemaContract:
+    """The <default> sentinel appears in exports but NOT in symbols.
+    This is the intentional contract documented in Export's docstring."""
+
+    def test_anon_fn_export_no_matching_symbol(self, tmp_path):
+        from pensieve.extractors.javascript import extract_javascript
+        p = tmp_path / "utils.js"
+        p.write_text("export default function() { return 1; }\n")
+        ext = extract_javascript(p)
+
+        assert any(e.name == "<default>" and e.kind == "default" for e in ext.exports)
+        assert not any(s.name == "<default>" for s in ext.symbols)
+
+    def test_arrow_export_no_matching_symbol(self, tmp_path):
+        from pensieve.extractors.javascript import extract_javascript
+        p = tmp_path / "utils.js"
+        p.write_text("export default () => 42;\n")
+        ext = extract_javascript(p)
+
+        assert any(e.name == "<default>" and e.kind == "default" for e in ext.exports)
+        assert not any(s.name == "<default>" for s in ext.symbols)
+
+    def test_ts_anon_fn_export_no_matching_symbol(self, tmp_path):
+        from pensieve.extractors.typescript import extract_typescript
+        p = tmp_path / "utils.ts"
+        p.write_text("export default function(): number { return 1; }\n")
+        ext = extract_typescript(p)
+
+        assert any(e.name == "<default>" and e.kind == "default" for e in ext.exports)
+        assert not any(s.name == "<default>" for s in ext.symbols)
+
+    def test_named_default_uses_real_name_not_sentinel(self, tmp_path):
+        """Named defaults should use the real name, not <default>."""
+        from pensieve.extractors.javascript import extract_javascript
+        p = tmp_path / "utils.js"
+        p.write_text("export default function helper() { return 1; }\n")
+        ext = extract_javascript(p)
+
+        assert any(e.name == "helper" and e.kind == "default" for e in ext.exports)
+        assert not any(e.name == "<default>" for e in ext.exports)
+
+
+# ---------------------------------------------------------------------------
+# JS anonymous default exports — integration
+# ---------------------------------------------------------------------------
+
+
 class TestJSAnonymousDefaults:
 
     def test_anon_function_default_creates_call_edge(self, tmp_path):
