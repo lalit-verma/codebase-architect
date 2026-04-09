@@ -438,7 +438,10 @@ def build_graph(
         if _is_test_file(ext.file_path):
             imp_dicts = [{"module": i.module, "names": i.names} for i in ext.imports]
             tested = _infer_tested_file(ext.file_path, imp_dicts, module_index)
-            for target in tested:
+            # Deduplicate: multiple Import records for the same module
+            # (from aliased specifier splitting) should not create
+            # duplicate test edges.
+            for target in sorted(set(tested)):
                 edges.append(GraphEdge(
                     source=ext.file_path,
                     target=target,
@@ -446,14 +449,37 @@ def build_graph(
                     detail=f"{ext.file_path} tests {target}",
                 ))
 
+    # --- Deduplicate import and test edges ---
+    # Multiple Import records from the same import statement (due to
+    # aliased specifier splitting) can produce duplicate import/test
+    # edges to the same target. Dedup those by (source, target, kind).
+    #
+    # Call edges are NOT deduped: each represents a distinct
+    # caller→callee relationship with its own detail/line/confidence.
+    # Collapsing them loses graph fidelity.
+    seen_import_test: set[tuple[str, str, str]] = set()
+    deduped_edges: list[GraphEdge] = []
+    for e in edges:
+        if e.kind in ("imports", "tests"):
+            key = (e.source, e.target, e.kind)
+            if key not in seen_import_test:
+                seen_import_test.add(key)
+                deduped_edges.append(e)
+        else:
+            # calls edges: keep all
+            deduped_edges.append(e)
+
     # --- Build nodes ---
     nodes = []
     for ext in extractions:
+        # import_count = unique import statements (unique modules),
+        # not Import records (which can be split for aliases).
+        unique_modules = {i.module for i in ext.imports}
         nodes.append({
             "file_path": ext.file_path,
             "language": ext.language,
             "symbol_count": len(ext.symbols),
-            "import_count": len(ext.imports),
+            "import_count": len(unique_modules),
             "is_test": _is_test_file(ext.file_path),
         })
 
@@ -468,7 +494,7 @@ def build_graph(
                 "line": e.line,
                 "confidence": e.confidence,
             }
-            for e in edges
+            for e in deduped_edges
         ],
         "external_imports": external_imports,
     }

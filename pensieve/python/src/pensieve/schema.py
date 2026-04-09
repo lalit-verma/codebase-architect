@@ -324,6 +324,8 @@ def validate_extraction(extraction: FileExtraction) -> list[str]:
     for i, sym in enumerate(extraction.symbols):
         if not sym.name:
             errors.append(f"symbols[{i}].name is empty")
+        if not sym.signature:
+            errors.append(f"symbols[{i}].signature is empty")
         if sym.kind not in VALID_SYMBOL_KINDS:
             errors.append(
                 f"symbols[{i}].kind '{sym.kind}' not in {sorted(VALID_SYMBOL_KINDS)}"
@@ -340,6 +342,9 @@ def validate_extraction(extraction: FileExtraction) -> list[str]:
                 f"symbols[{i}].line_end ({sym.line_end}) < "
                 f"line_start ({sym.line_start})"
             )
+        for j, param in enumerate(sym.parameters):
+            if not param.name:
+                errors.append(f"symbols[{i}].parameters[{j}].name is empty")
 
     for i, imp in enumerate(extraction.imports):
         if not imp.module:
@@ -352,6 +357,8 @@ def validate_extraction(extraction: FileExtraction) -> list[str]:
             errors.append(
                 f"imports[{i}].kind '{imp.kind}' not in {sorted(VALID_IMPORT_KINDS)}"
             )
+        if imp.alias is not None and not imp.alias:
+            errors.append(f"imports[{i}].alias is empty string (use None instead)")
 
     for i, exp in enumerate(extraction.exports):
         if not exp.name:
