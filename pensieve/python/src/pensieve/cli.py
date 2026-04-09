@@ -51,16 +51,35 @@ def _build_parser() -> argparse.ArgumentParser:
         version=f"code-pensieve {__version__}",
     )
 
-    # Subparsers — empty at A2, populated as subcommands ship.
-    parser.add_subparsers(
+    subparsers = parser.add_subparsers(
         dest="command",
         title="commands",
-        description=(
-            "No subcommands implemented yet. Subcommands land in "
-            "milestones A3 (hook), A6-A12 (benchmark), B12 (scan), "
-            "C11 (wire), D1 (serve)."
-        ),
         metavar="<command>",
+    )
+
+    # --- scan subcommand (B12) ---
+    scan_parser = subparsers.add_parser(
+        "scan",
+        help="Scan a repository and extract structural data",
+        description=(
+            "Walk a directory, extract structural data from all "
+            "supported source files using tree-sitter AST parsing, "
+            "and write the results to agent-docs/structure.json. "
+            "Uses SHA256 caching — unchanged files are not re-extracted."
+        ),
+    )
+    scan_parser.add_argument(
+        "path",
+        type=str,
+        nargs="?",
+        default=".",
+        help="Path to the repository root (default: current directory)",
+    )
+    scan_parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Output directory (default: <repo>/agent-docs)",
     )
 
     return parser
@@ -83,15 +102,37 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command is None:
-        # No subcommand → print help and exit cleanly. This is the
-        # discoverable behavior we want at A2; once subcommands land
-        # in A3+, the user will see them listed in --help and pick one.
         parser.print_help()
         return 0
 
-    # Dispatch table for subcommands. Empty at A2 — populated as
-    # subcommands ship. The unreachable branch is intentional: if
-    # argparse accepted a subcommand we don't know how to handle,
-    # something is wrong with the parser registration.
+    # --- Dispatch ---
+
+    if args.command == "scan":
+        return _cmd_scan(args)
+
     print(f"pensieve: unknown command: {args.command}", file=sys.stderr)
     return 1
+
+
+def _cmd_scan(args) -> int:
+    """Handle the `pensieve scan` subcommand."""
+    from pathlib import Path
+    from pensieve.scan import scan_repo
+
+    repo_root = Path(args.path).resolve()
+    if not repo_root.is_dir():
+        print(f"pensieve scan: not a directory: {repo_root}", file=sys.stderr)
+        return 1
+
+    output_dir = Path(args.output_dir) if args.output_dir else None
+
+    result = scan_repo(repo_root, output_dir=output_dir)
+
+    # Print summary
+    s = result.stats
+    print(f"Scanned {s['total_files']} files in {result.scan_time_seconds}s")
+    print(f"  extracted: {s['extracted']}  cached: {s['cached']}  "
+          f"failed: {s['failed']}")
+    print(f"  → {result.structure_path}")
+
+    return 0 if s["failed"] == 0 else 1

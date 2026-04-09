@@ -1,7 +1,7 @@
 # Code Pensieve — Build Plan
 
-> **Status:** Phase A — A1, A2 complete; A3 next
-> **Last updated:** 2026-04-08
+> **Status:** Phase B — B1–B13 complete; B14 next; Phase A paused
+> **Last updated:** 2026-04-10
 > **Owners:** Lalit + Claude (collaborative build)
 
 A vessel for codebase memories. Coding agents draw from the store on demand
@@ -109,14 +109,39 @@ new code). Everything else either supports these or is for human reference.
 
 | Phase | Goal | Status |
 |---|---|---|
-| **A** | Hooks + auto-benchmark | in progress (A1, A2 complete) |
-| **B** | AST extraction (Layer 1 + integration into Layer 2) | not started |
+| **A** | Hooks + auto-benchmark | **paused** — proceed criterion met (2026-04-10); A1, A2 complete; A3–A15 deferred until after Phase B |
+| **B** | AST extraction (Layer 1 + integration into Layer 2) | in progress (B1–B13 complete) |
 | **C** | Multi-repo support | not started |
 | **D** | MCP, multi-platform, polish, distribution | not started |
 
-We do not move from one phase to the next until the proceed criterion is hit.
-If a criterion fails, we iterate on the failing milestones — we do not skip
-ahead.
+## Execution order (revised 2026-04-10)
+
+Original plan: A → B → C → D (sequential).
+
+Revised order:
+
+1. **Phase B** (AST extraction) — now. The biggest cost lever. Wiring
+   is validated; the next dramatic improvement comes from replacing
+   LLM extraction with deterministic tree-sitter parsing.
+2. **Phase A remainder** (A3–A15: hook CLI + auto-benchmark runner) —
+   after Phase B. Gives us self-measurement for Phase C onward.
+3. **End-to-end testing** — validate A + B together on the calibration
+   repo via the teammate's external benchmark AND (once built) the
+   auto-benchmark.
+4. **Phase C** (multi-repo)
+5. **Phase D** (polish, distribution)
+
+Why reorder: Phase A's proceed criterion was met early via the
+teammate's external benchmark (v3: lenient +6.6pp, cost tied, quality
++0.20). The remaining Phase A work (programmatic hook installer +
+auto-benchmark runner) is stable-scope tooling that won't change based
+on Phase B's findings. Phase B is higher-value-per-unit-of-work right
+now. The teammate's external benchmark covers measurement needs during
+Phase B; we build self-measurement capability (auto-benchmark) before
+Phase C, where cross-repo tasks require new benchmark templates the
+teammate doesn't have yet.
+
+---
 
 ---
 
@@ -209,7 +234,13 @@ If condition 2 fails after iteration on the hook content, we stop and audit
 whether the content layer (the nano-digest itself) is the problem before
 building Phase B's AST extractor.
 
-### Phase A status: in progress (A1 complete)
+### Phase A status: PROCEED CRITERION MET (2026-04-10)
+
+Wiring layer validated by external benchmark v3 (30 tasks, 60 runs).
+with-docs now leads on tokens (−5%), time (−10%), quality (+0.20),
+lenient pass (+6.6pp) at cost parity ($0.861 vs $0.862). Phase B is
+green-lit. Remaining Phase A milestones (A3–A15, auto-benchmark
+infrastructure) can proceed in parallel with Phase B.
 
 ### Phase A notes
 
@@ -245,6 +276,15 @@ building Phase B's AST extractor.
   vanilla `python3 -m venv` workflow, which works on most systems —
   the uv workaround is specific to this dev environment.
 
+- **2026-04-10 (Proceed criterion met).** Teammate's external benchmark
+  v3 (30 tasks, 60 runs) shows with-docs beating baseline: tokens −5%,
+  cost tied, time −10%, quality +0.20, lenient pass +6.6pp. Phase A
+  proceed criterion is met. **Phase A paused** — A3–A15 deferred until
+  after Phase B. Rationale: Phase B (AST extraction) is the highest-
+  value-per-unit-of-work right now; the teammate's external benchmark
+  covers measurement needs during Phase B; remaining Phase A work is
+  stable-scope tooling that won't change based on Phase B's output.
+
 ---
 
 ## Phase B — AST extraction
@@ -261,27 +301,164 @@ foundation that multi-repo cross-edge detection needs in Phase C.
 
 ### Milestones
 
-- [ ] **B1.** Add tree-sitter as a Python dependency.
-- [ ] **B2.** Set up tree-sitter language parsers: Python, JavaScript,
-  TypeScript, Go, Java, Rust.
-- [ ] **B3.** Define the per-file structural JSON schema: file path,
+- [x] **B1.** Add tree-sitter as a Python dependency. *(2026-04-10:
+  added `tree-sitter>=0.23` + `tree-sitter-python>=0.23` to
+  pyproject.toml. Installed tree-sitter 0.25.2 + tree-sitter-python
+  0.25.0. Wrote `tests/test_tree_sitter.py` with 9 tests covering
+  import, parsing functions/classes/imports, empty source, syntax
+  errors, and line number extraction. 17/17 total tests pass.)*
+- [x] **B2.** Set up tree-sitter language parsers: Python, JavaScript,
+  TypeScript, Go, Java, Rust. *(2026-04-10: added tree-sitter-javascript
+  0.25.0, tree-sitter-typescript 0.23.2, tree-sitter-go 0.25.0,
+  tree-sitter-java 0.23.5, tree-sitter-rust 0.24.2. Wrote 26 tests
+  in `test_language_parsers.py` covering: import, function, class/struct,
+  interface/trait, imports/use, and language-specific constructs (JS
+  arrow functions, TS interfaces + TSX, Go receivers + structs, Java
+  annotations + interfaces, Rust impl blocks + traits + use). Key
+  finding: TypeScript exposes `language_typescript()` and `language_tsx()`
+  not `language()`. 43/43 total tests pass.)*
+- [x] **B3.** Define the per-file structural JSON schema: file path,
   language, imports, exports, classes, functions, methods, call edges
-  within file, rationale comments tagged.
-- [ ] **B4.** Implement Python extractor.
-- [ ] **B5.** Implement JavaScript extractor.
-- [ ] **B6.** Implement TypeScript extractor (handles type annotations).
-- [ ] **B7.** Implement Go extractor.
-- [ ] **B8.** Implement Java extractor.
-- [ ] **B9.** Implement Rust extractor.
-- [ ] **B10.** Implement comment-tag extraction across all languages
+  within file, rationale comments tagged. *(2026-04-10: wrote
+  `src/pensieve/schema.py` with 8 dataclasses (FileExtraction, Symbol,
+  Parameter, Import, Export, CallEdge, RationaleComment + SchemaError).
+  9 symbol kinds × 6 languages × 5 visibilities × 6 comment tags. Flat
+  symbol list with `parent` for containment. Continuous confidence
+  scores on call edges. Full JSON round-trip serialization + file I/O.
+  `validate_extraction()` checks all fields. 38 tests in
+  `test_schema.py` (construction, serialization, deserialization,
+  round-trip, file I/O, 13 validation-invalid cases, edge cases). Human-
+  readable reference at `pensieve/references/extraction-schema.md`. 81/81
+  total tests pass.)*
+- [x] **B4.** Implement Python extractor. *(2026-04-10: reference
+  implementation in `src/pensieve/extractors/python.py`. Multi-pass
+  architecture: Pass 1 = top-level declarations (functions, classes,
+  methods, imports, constants), Pass 2 = call edges within function
+  bodies, Pass 3 = rationale comments with containing-symbol context.
+  Handles: decorated functions/methods (@staticmethod, @classmethod,
+  @property, custom decorators), async functions, docstring extraction,
+  typed/default/splat parameters, return types, visibility by naming
+  convention (_private, __very_private, __dunder__ = public), self.method()
+  call stripping, nested-function-call isolation. Created extractors
+  package with `__init__.py` registry (`extract_file(path)` dispatches
+  by extension, `supported_extensions()`). 36 tests in
+  `test_extractor_python.py` covering all extraction paths + a realistic
+  auth-module integration test. 117/117 total tests pass.)*
+- [x] **B5.** Implement JavaScript extractor. *(2026-04-10:
+  `src/pensieve/extractors/javascript.py`. Follows B4's multi-pass
+  architecture. Handles: function_declaration, arrow functions as
+  const assignments, class_declaration + method_definition (constructor,
+  static, async), ESM imports (named, default, namespace), CommonJS
+  require(), export_statement (default + named + inline), constants
+  (const ALL_CAPS), JSDoc docstrings (/** ... */ as preceding sibling),
+  this.method() call stripping, export-based visibility (exported =
+  public). Registered on [.js, .mjs, .cjs]. 28 tests in
+  `test_extractor_javascript.py` + realistic integration test.
+  145/145 total tests pass.)*
+- [x] **B6.** Implement TypeScript extractor (handles type annotations).
+  *(2026-04-10: `src/pensieve/extractors/typescript.py`. Reuses stable
+  helpers from JS extractor (call edges, comments, JSDoc). TS-specific:
+  interface_declaration → kind="interface", type_alias_declaration →
+  kind="type_alias", enum_declaration → kind="enum",
+  accessibility_modifier → visibility (public/private/protected),
+  required_parameter with type annotations, return type from
+  type_annotation, `import type` detection (kind="import_type"), TSX
+  via language_tsx() for .tsx files. Fixed: TS-specific
+  `_extract_ts_exports` wrapping JS version to handle interface/type/enum
+  exports; constants inside `export const` now extracted. Registered on
+  [.ts, .tsx]. 27 tests + realistic PgUserRepository integration test.
+  172/172 total tests pass.)*
+- [x] **B7.** Implement Go extractor. *(2026-04-10:
+  `src/pensieve/extractors/go.py`. Go-specific: function_declaration +
+  method_declaration with receivers (pointer + value), type_declaration
+  for structs + interfaces, const_declaration (single + block), import
+  blocks with aliases + blank imports, capitalization-as-visibility
+  (uppercase = public, lowercase = private), Go doc comments (preceding
+  `//` lines, excluding rationale tags), multiple return types via
+  parameter_list. Bug found and fixed: return-type parameter_list was
+  being counted as another param set instead of captured as return type.
+  Registered on [.go]. 26 tests + realistic auth service integration
+  test. 198/198 total tests pass.)*
+- [x] **B8.** Implement Java extractor. *(2026-04-10:
+  `src/pensieve/extractors/java.py`. Java-specific: class_declaration +
+  interface_declaration + enum_declaration, method_declaration +
+  constructor_declaration, access modifiers from `modifiers` node
+  (public/private/protected/package-private), Javadoc (/** */ preceding
+  sibling, strips @param/@return tags), imports via scoped_identifier,
+  static final ALL_CAPS as constants, method_invocation + object_creation
+  for call edges (this.method stripped), annotations preserved in
+  signatures. Passed all 28 tests first try — no bugs found. Registered
+  on [.java]. 226/226 total tests pass.)*
+- [x] **B9.** Implement Rust extractor. *(2026-04-10:
+  `src/pensieve/extractors/rust.py`. Rust-specific: function_item (both
+  standalone + inside impl_item), impl_item handling (inherent + trait
+  impls with _get_impl_type resolving the target type), trait_item with
+  function_signature_item (abstract methods) + function_item (default
+  impls), struct_item, enum_item, type_item (type aliases), const_item,
+  use_declaration (simple + nested `{self, A, B}` + glob), pub/pub(crate)
+  visibility, `///` doc comments via outer_doc_comment_marker (filtered
+  from rationale tags), self/&self/&mut self parameters, return types
+  after `->`, self.method() call stripping, closure isolation. Second
+  extractor to pass all tests first try (29/29). Registered on [.rs].
+  255/255 total tests pass.)*
+
+  **ALL 6 LANGUAGE EXTRACTORS COMPLETE (B4–B9).** Total: Python, JS,
+  TS, Go, Java, Rust. 255 tests across 10 test files. Registered
+  extensions: .py, .js, .mjs, .cjs, .ts, .tsx, .go, .java, .rs.
+  Architecture consistent: 3-pass (declarations → call edges →
+  rationale comments), flat symbols with parent, continuous confidence
+  scores, schema-validated output.
+- [x] **B10.** Implement comment-tag extraction across all languages
   (`# WHY:`, `# NOTE:`, `# IMPORTANT:`, `# HACK:`, `# TODO:`,
   language-aware comment syntaxes).
-- [ ] **B11.** Implement SHA256 cache layer in `agent-docs/.cache/`.
-  Re-runs only re-extract files whose hash changed.
-- [ ] **B12.** Implement `pensieve scan <repo>` — full repo extraction,
-  produces `agent-docs/structure.json` and `agent-docs/graph.json`.
-- [ ] **B13.** Aggregate cross-file edges: import graph, call graph (where
-  resolvable), file→test mapping via naming heuristics.
+- [x] **B11.** Implement SHA256 cache layer in `agent-docs/.cache/`.
+  Re-runs only re-extract files whose hash changed. *(2026-04-10:
+  `src/pensieve/cache.py` — `ExtractionCache` class keyed by SHA256
+  of file content. get/put/has/invalidate/clear/stats API. Version-
+  aware invalidation (extractor_version mismatch → cache miss).
+  Corrupted-file resilience (JSON parse errors → warning + cache miss,
+  never crash). Lazy directory creation on first put(). Hash integrity
+  check (cached sha256 must match lookup key). Documented: caller must
+  fix file_path on shared-content cache hits. 29 tests covering all
+  5 identified failure cases + normal path + real extraction round-trip.
+  332/332 total tests pass. Not implemented: concurrent-write safety
+  (not needed for single-agent usage).)*
+- [x] **B12.** Implement `pensieve scan <repo>` — full repo extraction,
+  produces `agent-docs/structure.json`. *(2026-04-10:
+  `src/pensieve/scan.py` with `scan_repo()` + `_collect_files()`.
+  CLI subcommand `pensieve scan <path> [--output-dir]` registered in
+  cli.py. Walks repo, detects files by supported extension, extracts
+  via extract_file() with SHA256 cache from B11, normalizes file_path
+  to relative (fixes review finding #4), writes structure.json.
+  Default ignore patterns for 15+ common dirs (node_modules, .git,
+  vendor, __pycache__, .venv, agent-docs, etc.) with os.walk pruning
+  (ignored subtrees are never traversed). Validates fresh extractor
+  output via validate_extraction() before caching or writing —
+  schema-invalid extractions go to errors channel, not files[].
+  extract_file()→None on supported extensions counted as failure, not
+  skip. 24 tests covering: file detection with pruning verification,
+  mixed-language scan, cache behavior, ignore patterns, CLI dispatch,
+  empty/error cases, invalid extractor output, None-on-supported-file.
+  SCOPE NOTE: graph.json deferred to B13 (cross-file edges needed).
+  363/363 total tests pass.)*
+- [x] **B13.** Aggregate cross-file edges: import graph, call graph (where
+  resolvable), file→test mapping via naming heuristics. *(2026-04-10:
+  `src/pensieve/graph.py` with `build_graph()`. Module index maps
+  importable names → file paths (handles absolute, dotted, relative,
+  __init__.py). Import edges resolved for all in-repo modules; external
+  imports (stdlib, third-party) tracked separately. Cross-file call edges
+  resolved through import tracking: if main.py imports helper from
+  utils.py AND main() calls helper(), a cross-file call edge is created.
+  Test→source mapping via naming heuristics (test_*.py, *_test.py,
+  tests/ directory); test-importing-test filtered out. graph.json
+  written by scan_repo() alongside structure.json. 23 tests covering
+  import edges, external imports, circular imports, cross-file calls,
+  unresolved calls, test detection, relative imports, node structure,
+  and two integration tests with scan_repo().
+  KNOWN LIMITATIONS: wildcard imports unresolvable without runtime
+  analysis; Go import paths (URL-style) and Java package-qualified
+  imports have lower resolution accuracy than Python/JS/TS.
+  386/386 total tests pass.)*
 - [ ] **B14.** Update Phase 2 deep-dive prompts to consume `structure.json`
   + 5–10 sample files chosen by centrality, instead of reading every file
   in the subsystem.
@@ -306,11 +483,57 @@ foundation that multi-repo cross-edge detection needs in Phase C.
 4. Re-runs on unchanged files take <10% of first-run time on the
    calibration repo (cache is working).
 
-### Phase B status: not started
+### Phase B status: in progress (B1 complete)
 
 ### Phase B notes
 
-*(filled as we work)*
+- **2026-04-10 (B1):** tree-sitter installed and verified. API is
+  `Language(tspython.language())` → `Parser(language)` → `parse(bytes)`.
+  Tests confirm: function/class/import extraction, error-tolerant
+  parsing, line number extraction. Python grammar added alongside core
+  lib; remaining 5 languages (JS, TS, Go, Java, Rust) land in B2.
+
+- **2026-04-10 (B4):** Python extractor — reference implementation.
+  Multi-pass architecture (top-level declarations → call edges → rationale
+  comments). Created `src/pensieve/extractors/` package with registry
+  pattern (`register()` + `extract_file()`). The Python extractor auto-
+  registers on import. Key design decisions that apply to ALL extractors:
+  - Multi-pass over single recursive walk (simpler to debug)
+  - Signature = first line of declaration (not body)
+  - Visibility by language convention (Python: `_` prefix = private)
+  - Constants = top-level ALL_CAPS assignments
+  - Nested functions/lambdas skipped (not structural landmarks)
+  - `self.method()` calls stripped to just `method` for cleaner edges
+  - Nested function calls don't leak into parent's edge list
+  - Decorated definitions unwrapped to get inner function/class
+  - Docstring = first string literal in function/class body
+
+- **2026-04-10 (B3):** Per-file structural JSON schema designed and
+  implemented. Key design decisions:
+  - Flat symbol list with `parent` field for containment (not nested)
+  - 9 symbol kinds: function, class, method, interface, trait, struct,
+    enum, type_alias, constant
+  - Continuous confidence scores (0.0-1.0) on call edges, not
+    categorical labels
+  - 6 rationale comment tags: WHY, NOTE, IMPORTANT, HACK, TODO, FIXME
+  - Extractor version in output for cache invalidation
+  - Signature field captures declaration line (no body) — enough for
+    the LLM to understand what a function does without reading the file
+  - Parameters with optional type/default for pattern matching
+  - Full JSON round-trip via `to_json()`/`from_json()` and
+    `save()`/`load()` for file I/O
+  - `validate_extraction()` enforces all constraints, raises
+    SchemaError with all errors listed (not just the first)
+  Reference doc at `pensieve/references/extraction-schema.md`.
+
+- **2026-04-10 (B2):** All 6 language parsers installed and verified.
+  26 new tests across JS, TS, Go, Java, Rust. Key language-specific
+  findings documented in tests: TypeScript has `language_typescript()`
+  + `language_tsx()` (not `language()`); Go uses `method_declaration`
+  for receiver methods vs `function_declaration`; Java uses
+  `method_declaration` + `constructor_declaration`; Rust uses
+  `function_item` (not `function_declaration`) and `impl_item` +
+  `trait_item`. These node-type names are critical for B4-B9 extractors.
 
 ---
 
@@ -473,6 +696,9 @@ and users adopt it.
 | 2026-04-08 | **Sequencing:** milestone-driven with proceed criteria, not time-boxed | AI-coding-agent collaborative workflow doesn't follow human team time estimates |
 | 2026-04-08 | **Three-layer architecture:** Python core (deterministic) → LLM orchestration → wiring & distribution | Each layer independently testable; AST + LLM split is the cost lever |
 | 2026-04-08 | **Two load-bearing artifacts:** `agent-context-nano.md` (inlined) + `patterns.md` (recipes) | Everything else either supports these or is for human reference; simplifies the surface area |
+| 2026-04-10 | **Phase reorder:** B before A remainder, then E2E testing, then C, then D | Phase A proceed criterion met early via teammate's external benchmark. Phase B (AST extraction) is the highest-value next step. Remaining Phase A milestones (A3–A15: hook CLI + auto-benchmark) are stable-scope tooling that won't be affected by Phase B and can be completed after. Teammate covers measurement needs during Phase B. |
+| 2026-04-10 | **PreToolUse hook uses JSON `hookSpecificOutput.additionalContext`, not plain echo** | Web search of official Claude Code hooks docs confirmed: plain stdout from PreToolUse hooks only shows in verbose mode (Ctrl+O). The documented way to inject context into the agent is JSON output with `hookSpecificOutput.additionalContext`. graphify's plain-echo pattern may not be reaching the agent. Our hook uses the documented JSON mechanism, verified end-to-end by Lalit on 2026-04-08. |
+| 2026-04-10 | **Cache invalidation key = hash of extractor source files, not `__version__`** | Review finding: `__version__` is a static `0.0.1` string that doesn't change when extractor logic changes, so stale cache entries survive extractor bug fixes. Fix: `EXTRACTOR_HASH` is computed at import time by SHA256-hashing all `extractors/*.py` + `schema.py` source files. Any change to any extractor file auto-invalidates all cache entries. Zero developer discipline required. Falls back to `__version__` if source files can't be located (frozen distributions). |
 
 ---
 
@@ -482,7 +708,10 @@ and users adopt it.
 
 | Phase | Criterion | Result | Date | Action taken |
 |---|---|---|---|---|
-| — | — | — | — | — |
+| A (wiring) | Lenient pass ≥ baseline | **PASS: 53.3% vs 46.7% (+6.6pp)** | 2026-04-10 | Proceed to Phase B |
+| A (wiring) | Cost ≤ 105% of baseline | **PASS: $0.861 vs $0.862 (tied)** | 2026-04-10 | Proceed to Phase B |
+| A (wiring) | Quality ≥ baseline | **PASS: 7.27 vs 7.07 (+0.20)** | 2026-04-10 | (Not formally required but captured) |
+| A (wiring) | Time ≤ baseline | **PASS: 3.64m vs 4.04m (−10%)** | 2026-04-10 | (Not formally required but captured) |
 
 ---
 
