@@ -174,13 +174,13 @@ infrastructure we need for every subsequent phase.
   --python 3.12` + `uv pip install -e ".[dev]"`: 8/8 pytest tests pass,
   `pensieve --version` and `python -m pensieve --version` both print
   `code-pensieve 0.0.1`.)*
-- [ ] **A3.** Implement `pensieve hook install --platform claude` —
+- [x] **A3.** Implement `pensieve hook install --platform claude` —
   writes a PreToolUse hook to `.claude/settings.json`. Hook fires on the
   `Glob|Grep` matcher and emits a reminder when
   `agent-docs/agent-context-nano.md` exists.
-- [ ] **A4.** Implement `pensieve hook uninstall --platform claude` —
+- [x] **A4.** Implement `pensieve hook uninstall --platform claude` —
   cleanly removes the hook entry from `.claude/settings.json`.
-- [ ] **A5.** Smoke test: in a test repo with `agent-docs/` present,
+- [x] **A5.** Smoke test: in a test repo with `agent-docs/` present,
   manually trigger Glob and verify the hook fires and the reminder
   appears in the agent's context.
 - [ ] **A6.** Define the auto-benchmark task template format. JSON schema:

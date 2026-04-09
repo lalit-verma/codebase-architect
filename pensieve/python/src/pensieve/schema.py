@@ -88,6 +88,22 @@ VALID_LANGUAGES: frozenset[str] = frozenset(Language.__args__)  # type: ignore[a
 VALID_VISIBILITIES: frozenset[str] = frozenset(Visibility.__args__)  # type: ignore[attr-defined]
 VALID_COMMENT_TAGS: frozenset[str] = frozenset(CommentTag.__args__)  # type: ignore[attr-defined]
 
+VALID_IMPORT_KINDS: frozenset[str] = frozenset({
+    "import",        # Python `import X`, JS/TS ESM, Go, Java
+    "from_import",   # Python `from X import Y`
+    "require",       # JS CommonJS `require('X')`
+    "use",           # Rust `use X`
+    "static_import", # Java `import static X`
+    "import_type",   # TS `import type { X }`
+})
+
+VALID_EXPORT_KINDS: frozenset[str] = frozenset({
+    "default",       # JS/TS `export default X`
+    "named",         # JS/TS `export { X }` or `export function X`
+    "type",          # TS `export type X`
+    "re_export",     # JS/TS `export { X } from 'Y'`
+})
+
 # ---------------------------------------------------------------------------
 # Schema dataclasses
 # ---------------------------------------------------------------------------
@@ -186,7 +202,7 @@ class FileExtraction:
     all of these for one repo.
     """
 
-    file_path: str  # relative to repo root
+    file_path: str  # path as provided by the caller; scan_repo() normalizes to repo-relative
     language: Language
     sha256: str  # hash of file content at extraction time
     file_size_bytes: int
@@ -328,6 +344,26 @@ def validate_extraction(extraction: FileExtraction) -> list[str]:
     for i, imp in enumerate(extraction.imports):
         if not imp.module:
             errors.append(f"imports[{i}].module is empty")
+        if imp.line < 0:
+            errors.append(f"imports[{i}].line is negative: {imp.line}")
+        if not imp.kind:
+            errors.append(f"imports[{i}].kind is empty")
+        elif imp.kind not in VALID_IMPORT_KINDS:
+            errors.append(
+                f"imports[{i}].kind '{imp.kind}' not in {sorted(VALID_IMPORT_KINDS)}"
+            )
+
+    for i, exp in enumerate(extraction.exports):
+        if not exp.name:
+            errors.append(f"exports[{i}].name is empty")
+        if not exp.kind:
+            errors.append(f"exports[{i}].kind is empty")
+        elif exp.kind not in VALID_EXPORT_KINDS:
+            errors.append(
+                f"exports[{i}].kind '{exp.kind}' not in {sorted(VALID_EXPORT_KINDS)}"
+            )
+        if exp.line < 0:
+            errors.append(f"exports[{i}].line is negative: {exp.line}")
 
     for i, edge in enumerate(extraction.call_edges):
         if not edge.caller:
@@ -338,6 +374,8 @@ def validate_extraction(extraction: FileExtraction) -> list[str]:
             errors.append(
                 f"call_edges[{i}].confidence {edge.confidence} not in [0.0, 1.0]"
             )
+        if edge.line < 0:
+            errors.append(f"call_edges[{i}].line is negative: {edge.line}")
 
     for i, rc in enumerate(extraction.rationale_comments):
         if rc.tag not in VALID_COMMENT_TAGS:
@@ -347,6 +385,8 @@ def validate_extraction(extraction: FileExtraction) -> list[str]:
             )
         if not rc.text:
             errors.append(f"rationale_comments[{i}].text is empty")
+        if rc.line < 0:
+            errors.append(f"rationale_comments[{i}].line is negative: {rc.line}")
 
     if errors:
         raise SchemaError(

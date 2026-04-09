@@ -360,7 +360,30 @@ def _extract_use(node: Node, source: bytes) -> list[Import]:
     line = node.start_point[0] + 1
 
     for child in node.children:
-        if child.type == "scoped_identifier":
+        if child.type == "use_as_clause":
+            # Aliased: use std::collections::HashMap as Map
+            scoped = None
+            alias_name = None
+            for sub in child.children:
+                if sub.type == "scoped_identifier":
+                    scoped = _node_text(sub, source)
+                elif sub.type == "identifier":
+                    alias_name = _node_text(sub, source)
+            if scoped:
+                parts = scoped.rsplit("::", 1)
+                if len(parts) == 2:
+                    mod, name = parts
+                else:
+                    mod, name = scoped, ""
+                results.append(Import(
+                    module=mod,
+                    names=[name] if name else [],
+                    alias=alias_name,
+                    line=line,
+                    kind="use",
+                ))
+
+        elif child.type == "scoped_identifier":
             # Simple: use std::collections::HashMap
             full_path = _node_text(child, source)
             parts = full_path.rsplit("::", 1)
@@ -376,9 +399,10 @@ def _extract_use(node: Node, source: bytes) -> list[Import]:
             ))
 
         elif child.type == "scoped_use_list":
-            # Nested: use std::io::{self, Read, Write}
+            # Nested: use std::io::{self, Read, Write, Read as IoRead}
             module = ""
-            names: list[str] = []
+            plain_names: list[str] = []
+            aliased_items: list[tuple[str, str]] = []  # (original, alias)
 
             for sub in child.children:
                 if sub.type == "scoped_identifier":
@@ -386,18 +410,42 @@ def _extract_use(node: Node, source: bytes) -> list[Import]:
                 elif sub.type == "use_list":
                     for item in sub.children:
                         if item.type == "identifier":
-                            names.append(_node_text(item, source))
+                            plain_names.append(_node_text(item, source))
                         elif item.type == "self":
-                            names.append("self")
+                            plain_names.append("self")
                         elif item.type == "scoped_identifier":
-                            names.append(_node_text(item, source))
+                            plain_names.append(_node_text(item, source))
+                        elif item.type == "use_as_clause":
+                            # Read as IoRead inside grouped use
+                            original_name = None
+                            alias_name = None
+                            for inner in item.children:
+                                if inner.type in ("identifier", "scoped_identifier"):
+                                    if original_name is None:
+                                        original_name = _node_text(inner, source)
+                                    else:
+                                        alias_name = _node_text(inner, source)
+                            if original_name:
+                                aliased_items.append((original_name, alias_name or original_name))
 
-            results.append(Import(
-                module=module,
-                names=names,
-                line=line,
-                kind="use",
-            ))
+            # Plain names in one Import
+            if plain_names:
+                results.append(Import(
+                    module=module,
+                    names=plain_names,
+                    line=line,
+                    kind="use",
+                ))
+
+            # Each aliased item gets its own Import (same pattern as JS/TS)
+            for original, alias in aliased_items:
+                results.append(Import(
+                    module=module,
+                    names=[original],
+                    alias=alias,
+                    line=line,
+                    kind="use",
+                ))
 
         elif child.type == "use_wildcard":
             # Glob: use std::io::*

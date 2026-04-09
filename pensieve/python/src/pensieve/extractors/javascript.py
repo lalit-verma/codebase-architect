@@ -250,36 +250,58 @@ def _extract_imports(node: Node, source: bytes) -> list[Import]:
         module = raw.strip("'\"")
 
     # Find imported names
-    names: list[str] = []
-    alias: str | None = None
+    plain_names: list[str] = []
+    default_alias: str | None = None
+    namespace_alias: str | None = None
+    aliased_specifiers: list[tuple[str, str]] = []  # (original_name, alias)
+
     for child in node.children:
         if child.type == "import_clause":
             for sub in child.children:
                 if sub.type == "identifier":
                     # Default import: `import path from 'path'`
-                    alias = _node_text(sub, source)
+                    default_alias = _node_text(sub, source)
                 elif sub.type == "named_imports":
                     for spec in sub.children:
                         if spec.type == "import_specifier":
                             name_n = spec.child_by_field_name("name")
+                            alias_n = spec.child_by_field_name("alias")
                             if name_n:
-                                names.append(_node_text(name_n, source))
+                                original = _node_text(name_n, source)
+                                if alias_n:
+                                    # import { helper as h } → separate record
+                                    aliased_specifiers.append(
+                                        (original, _node_text(alias_n, source))
+                                    )
+                                else:
+                                    plain_names.append(original)
                 elif sub.type == "namespace_import":
                     # `import * as name from 'module'`
-                    # Set names=["*"] to distinguish from default imports
-                    # (default: alias set, names empty; namespace: alias set, names=["*"])
-                    names.append("*")
+                    plain_names.append("*")
                     for ns_child in sub.children:
                         if ns_child.type == "identifier":
-                            alias = _node_text(ns_child, source)
+                            namespace_alias = _node_text(ns_child, source)
 
-    results.append(Import(
-        module=module,
-        names=names,
-        alias=alias,
-        line=line,
-        kind="import",
-    ))
+    # Non-aliased names in one Import record
+    if plain_names or default_alias or namespace_alias:
+        results.append(Import(
+            module=module,
+            names=plain_names,
+            alias=default_alias or namespace_alias,
+            line=line,
+            kind="import",
+        ))
+
+    # Each aliased specifier gets its own Import so B13's alias
+    # tracking can map local_name → (source_file, original_name)
+    for original, local_alias in aliased_specifiers:
+        results.append(Import(
+            module=module,
+            names=[original],
+            alias=local_alias,
+            line=line,
+            kind="import",
+        ))
     return results
 
 

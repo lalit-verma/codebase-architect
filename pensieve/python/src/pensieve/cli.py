@@ -82,6 +82,53 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output directory (default: <repo>/agent-docs)",
     )
 
+    # --- hook subcommand (A3, A4) ---
+    hook_parser = subparsers.add_parser(
+        "hook",
+        help="Install or uninstall the PreToolUse hook",
+        description=(
+            "Install or uninstall the Code Pensieve PreToolUse hook "
+            "into a target repo's .claude/ directory. The hook fires "
+            "before every Glob/Grep call and reminds Claude that "
+            "codebase context is available."
+        ),
+    )
+    hook_sub = hook_parser.add_subparsers(
+        dest="hook_action",
+        title="actions",
+        metavar="<action>",
+    )
+
+    install_parser = hook_sub.add_parser("install", help="Install the hook")
+    install_parser.add_argument(
+        "--platform",
+        type=str,
+        default="claude",
+        choices=["claude"],
+        help="Target platform (default: claude). Others not yet supported.",
+    )
+    install_parser.add_argument(
+        "--repo",
+        type=str,
+        default=".",
+        help="Repository root (default: current directory)",
+    )
+
+    uninstall_parser = hook_sub.add_parser("uninstall", help="Uninstall the hook")
+    uninstall_parser.add_argument(
+        "--platform",
+        type=str,
+        default="claude",
+        choices=["claude"],
+        help="Target platform (default: claude)",
+    )
+    uninstall_parser.add_argument(
+        "--repo",
+        type=str,
+        default=".",
+        help="Repository root (default: current directory)",
+    )
+
     return parser
 
 
@@ -110,6 +157,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "scan":
         return _cmd_scan(args)
 
+    if args.command == "hook":
+        return _cmd_hook(args)
+
     print(f"pensieve: unknown command: {args.command}", file=sys.stderr)
     return 1
 
@@ -136,3 +186,35 @@ def _cmd_scan(args) -> int:
     print(f"  → {result.structure_path}")
 
     return 0 if s["failed"] == 0 else 1
+
+
+def _cmd_hook(args) -> int:
+    """Handle the `pensieve hook install/uninstall` subcommand."""
+    from pathlib import Path
+    from pensieve.hooks import install_hook, uninstall_hook
+
+    if not hasattr(args, "hook_action") or args.hook_action is None:
+        print("pensieve hook: specify 'install' or 'uninstall'", file=sys.stderr)
+        return 1
+
+    repo_root = Path(args.repo).resolve()
+    if not repo_root.is_dir():
+        print(f"pensieve hook: not a directory: {repo_root}", file=sys.stderr)
+        return 1
+
+    if args.hook_action == "install":
+        result = install_hook(repo_root)
+        print(f"Hook script: {result['script']}")
+        print(f"Settings:    {result['settings']}")
+        if result["script"] == "created":
+            print(f"  → {repo_root / '.claude' / 'hooks' / 'pensieve-pretooluse.sh'}")
+        return 0
+
+    elif args.hook_action == "uninstall":
+        result = uninstall_hook(repo_root)
+        print(f"Hook script: {result['script']}")
+        print(f"Settings:    {result['settings']}")
+        return 0
+
+    print(f"pensieve hook: unknown action: {args.hook_action}", file=sys.stderr)
+    return 1
