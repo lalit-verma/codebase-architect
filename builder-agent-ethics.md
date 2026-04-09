@@ -43,6 +43,7 @@ If asked to review instead of build:
 - Prioritize bugs, behavioral regressions, contract drift, missing tests, and overclaims.
 - Order findings by severity with file/line references.
 - Do not rely on test pass/fail alone; inspect common real-world cases.
+- Always include an actionable note section with the concrete next fix, test, or decision needed.
 
 If asked to update PLAN.md:
 - Make PLAN.md describe reality, not intent.

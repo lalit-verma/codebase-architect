@@ -514,6 +514,19 @@ def extract_typescript(path: Path) -> FileExtraction:
                             const = _extract_constant(sub, source)
                             if const:
                                 symbols.append(const)
+                    elif sub.type in ("function_expression", "arrow_function"):
+                        # Anonymous callable default export
+                        from pensieve.schema import Symbol as _Sym
+                        params_node = sub.child_by_field_name("parameters")
+                        symbols.append(_Sym(
+                            name="<default>",
+                            kind="function",
+                            line_start=sub.start_point[0] + 1,
+                            line_end=sub.end_point[0] + 1,
+                            signature=_first_line(sub, source),
+                            visibility="public",
+                            parameters=_extract_ts_params(params_node, source) if params_node else [],
+                        ))
 
             elif child.type == "lexical_declaration":
                 arrow = _extract_arrow_function(child, source)

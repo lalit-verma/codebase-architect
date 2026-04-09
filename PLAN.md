@@ -183,9 +183,15 @@ infrastructure we need for every subsequent phase.
 - [x] **A5.** Smoke test: in a test repo with `agent-docs/` present,
   manually trigger Glob and verify the hook fires and the reminder
   appears in the agent's context.
-- [ ] **A6.** Define the auto-benchmark task template format. JSON schema:
+- [x] **A6.** Define the auto-benchmark task template format. JSON schema:
   template name, instruction template, expected output checker (strict +
-  lenient), simulated repo modifications, success criteria.
+  lenient), simulated repo modifications, success criteria. *(2026-04-10:
+  `src/pensieve/benchmark/template.py` with TaskTemplate + CheckerSpec +
+  validate_template(). 5 checker types (file_exists, symbol_exists,
+  pattern_followed, content_contains, llm_judge), 7 task types, 3
+  difficulties. Parameterized instructions with placeholders. Setup
+  actions for repo modification. Full JSON round-trip. 28 tests.
+  490/490 total tests pass.)*
 - [ ] **A7.** Implement 5 task templates (the Phase A subset):
   - `add_handler` — write a new instance of the most-common file pattern
   - `add_test` — write a test for an existing file

@@ -481,6 +481,78 @@ class TestAliasedCallResolution:
         call_edges = [e for e in graph["edges"] if e["kind"] == "calls"]
         assert len(call_edges) == 0
 
+    def test_class_default_export_no_call_edge(self):
+        """export default class Foo {}; import foo; foo() → NO call edge.
+        A class is not a callable function in dependency-graph terms."""
+        from pensieve.schema import Export
+
+        exts = [
+            _ext("main.js",
+                 language="javascript",
+                 imports=[Import(module="./utils.js", names=[],
+                                 alias="foo", line=1, kind="import")],
+                 call_edges=[_call("handler", "foo")],
+                 symbols=[_sym("handler")]),
+        ]
+        utils = FileExtraction(
+            file_path="utils.js", language="javascript",
+            sha256="fake", file_size_bytes=100, line_count=10,
+            symbols=[Symbol(name="Foo", kind="class", line_start=1, line_end=5,
+                           signature="class Foo {}", visibility="public")],
+            exports=[Export(name="Foo", kind="default", line=1)],
+        )
+        graph = build_graph(exts + [utils])
+        call_edges = [e for e in graph["edges"] if e["kind"] == "calls"]
+        assert len(call_edges) == 0  # class is not callable
+
+    def test_constant_default_export_no_call_edge(self):
+        """export default 42; import foo; foo() → NO call edge.
+        A constant is not callable."""
+        from pensieve.schema import Export
+
+        exts = [
+            _ext("main.js",
+                 language="javascript",
+                 imports=[Import(module="./utils.js", names=[],
+                                 alias="foo", line=1, kind="import")],
+                 call_edges=[_call("handler", "foo")],
+                 symbols=[_sym("handler")]),
+        ]
+        utils = FileExtraction(
+            file_path="utils.js", language="javascript",
+            sha256="fake", file_size_bytes=100, line_count=10,
+            symbols=[Symbol(name="VALUE", kind="constant", line_start=1, line_end=1,
+                           signature="const VALUE = 42", visibility="public")],
+            exports=[Export(name="VALUE", kind="default", line=1)],
+        )
+        graph = build_graph(exts + [utils])
+        call_edges = [e for e in graph["edges"] if e["kind"] == "calls"]
+        assert len(call_edges) == 0  # constant is not callable
+
+    def test_function_default_export_still_creates_call_edge(self):
+        """Regression: export default function helper(); import foo; foo()
+        → call edge SHOULD still exist."""
+        from pensieve.schema import Export
+
+        exts = [
+            _ext("main.js",
+                 language="javascript",
+                 imports=[Import(module="./utils.js", names=[],
+                                 alias="foo", line=1, kind="import")],
+                 call_edges=[_call("handler", "foo")],
+                 symbols=[_sym("handler")]),
+        ]
+        utils = FileExtraction(
+            file_path="utils.js", language="javascript",
+            sha256="fake", file_size_bytes=100, line_count=10,
+            symbols=[_sym("helper")],  # kind="function" by default
+            exports=[Export(name="helper", kind="default", line=1)],
+        )
+        graph = build_graph(exts + [utils])
+        call_edges = [e for e in graph["edges"] if e["kind"] == "calls"]
+        assert len(call_edges) == 1
+        assert call_edges[0]["target"] == "utils.js"
+
     def test_default_import_no_call_edge_without_default_export(self):
         """import foo from './utils.js'; foo() → NO call edge when
         utils.js has only named exports (no default export)."""

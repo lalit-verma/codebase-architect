@@ -348,7 +348,12 @@ def _extract_exports(node: Node, source: bytes) -> list[Export]:
     )
 
     if has_default:
-        # `export default X` or `export default function X()` or `export default class X`
+        # `export default X` — various forms:
+        # - identifier: export default Foo;
+        # - function_declaration: export default function helper() {}
+        # - class_declaration: export default class Foo {}
+        # - function_expression: export default function() {}  (anonymous)
+        # - arrow_function: export default () => {}  (anonymous)
         for child in node.children:
             if child.type == "identifier":
                 results.append(Export(name=_node_text(child, source), kind="default", line=line))
@@ -362,6 +367,11 @@ def _extract_exports(node: Node, source: bytes) -> list[Export]:
                 name_n = child.child_by_field_name("name")
                 if name_n:
                     results.append(Export(name=_node_text(name_n, source), kind="default", line=line))
+                break
+            elif child.type in ("function_expression", "arrow_function"):
+                # Anonymous callable default export. Use synthetic name
+                # so the graph layer can detect it as a callable default.
+                results.append(Export(name="<default>", kind="default", line=line))
                 break
     else:
         # `export { name1, name2 }` or `export function ...` or `export class ...`
@@ -531,6 +541,20 @@ def extract_javascript(path: Path) -> FileExtraction:
                         arrow = _extract_arrow_function(sub, source)
                         if arrow:
                             symbols.append(arrow)
+                    elif sub.type in ("function_expression", "arrow_function"):
+                        # Anonymous callable default export: create a Symbol
+                        # with synthetic name "<default>" so the graph layer
+                        # can detect it as a callable default.
+                        params_node = sub.child_by_field_name("parameters")
+                        symbols.append(Symbol(
+                            name="<default>",
+                            kind="function",
+                            line_start=sub.start_point[0] + 1,
+                            line_end=sub.end_point[0] + 1,
+                            signature=_first_line(sub, source),
+                            visibility="public",
+                            parameters=_extract_params(params_node, source) if params_node else [],
+                        ))
 
             elif child.type == "lexical_declaration":
                 # Check for arrow function, require, or constant

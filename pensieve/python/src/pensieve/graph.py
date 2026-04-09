@@ -20,6 +20,21 @@ Invariants:
   - Circular imports are handled correctly (both edges appear).
   - Relative imports resolved against the importing file's directory.
   - Aliased imports tracked for cross-file call resolution.
+
+Graph-level semantics:
+  - **Import edges are module-level (file-to-file).** Multiple import
+    statements from the same source to the same target are deduplicated
+    into one edge. `import_count` on nodes reflects unique modules
+    imported, not import statement count. The `detail` and `line` fields
+    on deduped import edges are representative (first seen), not
+    exhaustive.
+  - **Test edges are module-level.** Same dedup as imports.
+  - **Call edges are function-level.** Each distinct caller→callee
+    relationship is preserved as a separate edge with its own detail,
+    line, and confidence. Call edges are NOT deduplicated.
+  - **Default-import call edges** are only emitted when the target's
+    default export is a callable symbol (function or method). Classes
+    and constants do not produce call edges.
 """
 
 from __future__ import annotations
@@ -343,12 +358,22 @@ def build_graph(
     module_index = _build_module_index(extractions)
 
     symbols_by_file: dict[str, set[str]] = {}
-    # Track which files have a default export (for gating default-import call edges)
-    has_default_export: set[str] = set()
+    # Track the kind of each symbol by (file, name) for callable checking
+    symbol_kinds: dict[str, dict[str, str]] = {}  # file → {name: kind}
+    # Track which files have a callable default export (function/method).
+    # Only callable defaults justify a call edge from a default import.
+    has_callable_default_export: set[str] = set()
+    _CALLABLE_KINDS = frozenset({"function", "method"})
+
     for ext in extractions:
         symbols_by_file[ext.file_path] = {s.name for s in ext.symbols}
-        if any(e.kind == "default" for e in ext.exports):
-            has_default_export.add(ext.file_path)
+        symbol_kinds[ext.file_path] = {s.name: s.kind for s in ext.symbols}
+        for exp in ext.exports:
+            if exp.kind == "default":
+                # Check if the exported symbol is function-like
+                sym_kind = symbol_kinds[ext.file_path].get(exp.name)
+                if sym_kind in _CALLABLE_KINDS:
+                    has_callable_default_export.add(ext.file_path)
 
     # Track imported names AND aliases for cross-file call resolution.
     # file_path → {local_name: (source_file_path, original_name, is_default)}
@@ -409,11 +434,13 @@ def build_graph(
                 source_file, original_name, is_default = entry
                 if source_file != ext.file_path:
                     if is_default:
-                        # Default import: verify the target actually has a
-                        # default export. Without this check, any alias-only
-                        # import would create a false-positive call edge even
-                        # when the target only has named exports.
-                        if source_file in has_default_export:
+                        # Default import: verify the target has a CALLABLE
+                        # default export (function or method). Non-callable
+                        # defaults (classes, constants) don't justify a call
+                        # edge — `foo()` on a class is a constructor, not a
+                        # function call in the dependency-graph sense; on a
+                        # constant it's a runtime error.
+                        if source_file in has_callable_default_export:
                             edges.append(GraphEdge(
                                 source=ext.file_path,
                                 target=source_file,
