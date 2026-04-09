@@ -50,6 +50,9 @@ HOOK_ENTRY = {
 }
 
 _HOOK_SCRIPT_NAME = "pensieve-pretooluse.sh"
+# The exact command string we write — used for identity matching.
+# Must match HOOK_ENTRY["hooks"][0]["command"] exactly.
+_OUR_COMMAND = "bash .claude/hooks/pensieve-pretooluse.sh"
 
 
 # ---------------------------------------------------------------------------
@@ -103,12 +106,13 @@ def install_hook(repo_root: Path) -> dict[str, str]:
     hooks = settings.setdefault("hooks", {})
     pre_tool = hooks.setdefault("PreToolUse", [])
 
-    # Check if already registered (idempotent)
+    # Check if already registered (idempotent) — exact command match,
+    # not substring. An unrelated hook with "pensieve" in its args must
+    # NOT be treated as ours.
     already = any(
         isinstance(h, dict)
-        and h.get("matcher") == "Glob|Grep"
         and any(
-            isinstance(hh, dict) and "pensieve" in hh.get("command", "")
+            isinstance(hh, dict) and hh.get("command") == _OUR_COMMAND
             for hh in h.get("hooks", [])
         )
         for h in pre_tool
@@ -117,12 +121,14 @@ def install_hook(repo_root: Path) -> dict[str, str]:
     if already:
         result["settings"] = "already_registered"
     else:
+        # Track whether settings.json existed before we write
+        is_new_settings = not settings_path.exists()
         pre_tool.append(HOOK_ENTRY)
         settings_path.write_text(
             json.dumps(settings, indent=2) + "\n",
             encoding="utf-8",
         )
-        result["settings"] = "merged" if settings_path.exists() else "created"
+        result["settings"] = "created" if is_new_settings else "merged"
 
     return result
 
@@ -174,14 +180,13 @@ def uninstall_hook(repo_root: Path) -> dict[str, str]:
     pre_tool = settings.get("hooks", {}).get("PreToolUse", [])
     original_len = len(pre_tool)
 
-    # Filter out our hook entry
+    # Filter out our hook entry — exact command match only
     filtered = [
         h for h in pre_tool
         if not (
             isinstance(h, dict)
-            and h.get("matcher") == "Glob|Grep"
             and any(
-                isinstance(hh, dict) and "pensieve" in hh.get("command", "")
+                isinstance(hh, dict) and hh.get("command") == _OUR_COMMAND
                 for hh in h.get("hooks", [])
             )
         )

@@ -223,6 +223,12 @@ def validate_template(template: TaskTemplate) -> None:
             )
         if not action.get("path"):
             errors.append(f"setup_actions[{i}].path is empty")
+        # write_file and modify_file require content; delete_file does not
+        act = action.get("action")
+        if act in ("write_file", "modify_file") and not action.get("content"):
+            errors.append(
+                f"setup_actions[{i}]: {act} requires content"
+            )
 
     if errors:
         raise TemplateError(

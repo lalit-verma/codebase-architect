@@ -1,6 +1,6 @@
 # Code Pensieve — Build Plan
 
-> **Status:** Phase B — B1–B13 complete; B14 next; Phase A paused
+> **Status:** Phase A resumed (A3–A6 complete, A7 next); Phase B Layer 1 (B1–B13) complete
 > **Last updated:** 2026-04-10
 > **Owners:** Lalit + Claude (collaborative build)
 
@@ -110,7 +110,7 @@ new code). Everything else either supports these or is for human reference.
 | Phase | Goal | Status |
 |---|---|---|
 | **A** | Hooks + auto-benchmark | **paused** — proceed criterion met (2026-04-10); A1, A2 complete; A3–A15 deferred until after Phase B |
-| **B** | AST extraction (Layer 1 + integration into Layer 2) | in progress (B1–B13 complete) |
+| **B** | AST extraction (Layer 1 + integration into Layer 2) | Layer 1 complete (B1–B13, 529 tests); Layer 2 integration (B14–B17) pending |
 | **C** | Multi-repo support | not started |
 | **D** | MCP, multi-platform, polish, distribution | not started |
 
@@ -192,13 +192,20 @@ infrastructure we need for every subsequent phase.
   difficulties. Parameterized instructions with placeholders. Setup
   actions for repo modification. Full JSON round-trip. 28 tests.
   490/490 total tests pass.)*
-- [ ] **A7.** Implement 5 task templates (the Phase A subset):
+- [x] **A7.** Implement 5 task templates (the Phase A subset):
   - `add_handler` — write a new instance of the most-common file pattern
   - `add_test` — write a test for an existing file
   - `bug_fix_localized` — fix a planted bug in a single function
   - `find_owner` — answer "which subsystem owns file X and what
     conventions apply"
   - `cold_navigation` — open-ended question requiring repo exploration
+  *(2026-04-10: `src/pensieve/benchmark/tasks.py` with 5 TaskTemplate
+  instances. Each has parameterized instruction with documented
+  placeholders, strict checker (file_exists/content_contains), and
+  lenient checker (llm_judge). DOCUMENTED_PLACEHOLDERS frozenset for
+  validation. Registry with get_all_templates/get_template_by_name.
+  49 tests covering validation, serialization, placeholder inventory,
+  registry, and per-template spot checks. 578/578 total tests pass.)*
 - [ ] **A8.** Implement the baseline runner — runs each task without any
   `agent-docs/` present, measures tokens, cost, time, lenient pass via
   LLM judge.
@@ -325,146 +332,134 @@ foundation that multi-repo cross-edge detection needs in Phase C.
   not `language()`. 43/43 total tests pass.)*
 - [x] **B3.** Define the per-file structural JSON schema: file path,
   language, imports, exports, classes, functions, methods, call edges
-  within file, rationale comments tagged. *(2026-04-10: wrote
-  `src/pensieve/schema.py` with 8 dataclasses (FileExtraction, Symbol,
-  Parameter, Import, Export, CallEdge, RationaleComment + SchemaError).
-  9 symbol kinds × 6 languages × 5 visibilities × 6 comment tags. Flat
-  symbol list with `parent` for containment. Continuous confidence
-  scores on call edges. Full JSON round-trip serialization + file I/O.
-  `validate_extraction()` checks all fields. 38 tests in
-  `test_schema.py` (construction, serialization, deserialization,
-  round-trip, file I/O, 13 validation-invalid cases, edge cases). Human-
-  readable reference at `pensieve/references/extraction-schema.md`. 81/81
-  total tests pass.)*
-- [x] **B4.** Implement Python extractor. *(2026-04-10: reference
-  implementation in `src/pensieve/extractors/python.py`. Multi-pass
-  architecture: Pass 1 = top-level declarations (functions, classes,
-  methods, imports, constants), Pass 2 = call edges within function
-  bodies, Pass 3 = rationale comments with containing-symbol context.
-  Handles: decorated functions/methods (@staticmethod, @classmethod,
-  @property, custom decorators), async functions, docstring extraction,
-  typed/default/splat parameters, return types, visibility by naming
-  convention (_private, __very_private, __dunder__ = public), self.method()
-  call stripping, nested-function-call isolation. Created extractors
-  package with `__init__.py` registry (`extract_file(path)` dispatches
-  by extension, `supported_extensions()`). 36 tests in
-  `test_extractor_python.py` covering all extraction paths + a realistic
-  auth-module integration test. 117/117 total tests pass.)*
-- [x] **B5.** Implement JavaScript extractor. *(2026-04-10:
-  `src/pensieve/extractors/javascript.py`. Follows B4's multi-pass
-  architecture. Handles: function_declaration, arrow functions as
-  const assignments, class_declaration + method_definition (constructor,
-  static, async), ESM imports (named, default, namespace), CommonJS
-  require(), export_statement (default + named + inline), constants
-  (const ALL_CAPS), JSDoc docstrings (/** ... */ as preceding sibling),
-  this.method() call stripping, export-based visibility (exported =
-  public). Registered on [.js, .mjs, .cjs]. 28 tests in
-  `test_extractor_javascript.py` + realistic integration test.
-  145/145 total tests pass.)*
+  within file, rationale comments tagged. *(2026-04-10, hardened
+  across multiple review rounds:
+  `src/pensieve/schema.py` with 8 dataclasses. Systematic validator
+  sweep: every required-value field checked (symbol name/signature/
+  kind/visibility/lines, parameter names, import module/kind/line/alias,
+  export name/kind/line, call edge caller/callee/confidence/line,
+  comment tag/text/line). VALID_IMPORT_KINDS (6) and VALID_EXPORT_KINDS
+  (4) enforce allowed values. Export docstring documents the `<default>`
+  sentinel for anonymous callable defaults. file_path documented as
+  "as provided by caller; scan_repo() normalizes to repo-relative."
+  38 tests in test_schema.py. Reference doc at
+  `pensieve/references/extraction-schema.md`.)*
+- [x] **B4.** Implement Python extractor. *(2026-04-10, updated after
+  reviews: reference implementation, multi-pass architecture. Handles:
+  decorated functions, async, docstrings, typed/default/splat params,
+  return types, visibility by naming convention, self.method() stripping,
+  nested-function isolation, relative imports (from . import X,
+  from ..bar import X). Created extractors package with lazy-loading
+  registry (importlib-based, one broken module doesn't take down
+  others). 36 tests in test_extractor_python.py.)*
+- [x] **B5.** Implement JavaScript extractor. *(2026-04-10, updated
+  after multiple review rounds:
+  `src/pensieve/extractors/javascript.py`. Multi-pass architecture.
+  Handles: function_declaration, arrow functions as const assignments,
+  class_declaration + method_definition, ESM imports (named, default,
+  namespace with names=["*"]), CommonJS require(), exports (default
+  named + named aliased + inline default function/arrow + re-exports
+  with `from` source + `export * as ns` namespace re-exports),
+  anonymous callable default exports (Export name="<default>", no
+  synthetic Symbol), named-import aliases (import { X as Y } produces
+  separate Import records for graph alias tracking), constants,
+  JSDoc docstrings, this.method() call stripping, export-based
+  visibility. Registered on [.js, .mjs, .cjs].)*
 - [x] **B6.** Implement TypeScript extractor (handles type annotations).
-  *(2026-04-10: `src/pensieve/extractors/typescript.py`. Reuses stable
-  helpers from JS extractor (call edges, comments, JSDoc). TS-specific:
-  interface_declaration → kind="interface", type_alias_declaration →
-  kind="type_alias", enum_declaration → kind="enum",
-  accessibility_modifier → visibility (public/private/protected),
-  required_parameter with type annotations, return type from
-  type_annotation, `import type` detection (kind="import_type"), TSX
-  via language_tsx() for .tsx files. Fixed: TS-specific
-  `_extract_ts_exports` wrapping JS version to handle interface/type/enum
-  exports; constants inside `export const` now extracted. Registered on
-  [.ts, .tsx]. 27 tests + realistic PgUserRepository integration test.
-  172/172 total tests pass.)*
-- [x] **B7.** Implement Go extractor. *(2026-04-10:
-  `src/pensieve/extractors/go.py`. Go-specific: function_declaration +
-  method_declaration with receivers (pointer + value), type_declaration
-  for structs + interfaces, const_declaration (single + block), import
-  blocks with aliases + blank imports, capitalization-as-visibility
-  (uppercase = public, lowercase = private), Go doc comments (preceding
-  `//` lines, excluding rationale tags), multiple return types via
-  parameter_list. Bug found and fixed: return-type parameter_list was
-  being counted as another param set instead of captured as return type.
-  Registered on [.go]. 26 tests + realistic auth service integration
-  test. 198/198 total tests pass.)*
-- [x] **B8.** Implement Java extractor. *(2026-04-10:
-  `src/pensieve/extractors/java.py`. Java-specific: class_declaration +
-  interface_declaration + enum_declaration, method_declaration +
-  constructor_declaration, access modifiers from `modifiers` node
-  (public/private/protected/package-private), Javadoc (/** */ preceding
-  sibling, strips @param/@return tags), imports via scoped_identifier,
-  static final ALL_CAPS as constants, method_invocation + object_creation
-  for call edges (this.method stripped), annotations preserved in
-  signatures. Passed all 28 tests first try — no bugs found. Registered
-  on [.java]. 226/226 total tests pass.)*
-- [x] **B9.** Implement Rust extractor. *(2026-04-10:
-  `src/pensieve/extractors/rust.py`. Rust-specific: function_item (both
-  standalone + inside impl_item), impl_item handling (inherent + trait
-  impls with _get_impl_type resolving the target type), trait_item with
-  function_signature_item (abstract methods) + function_item (default
-  impls), struct_item, enum_item, type_item (type aliases), const_item,
-  use_declaration (simple + nested `{self, A, B}` + glob), pub/pub(crate)
-  visibility, `///` doc comments via outer_doc_comment_marker (filtered
-  from rationale tags), self/&self/&mut self parameters, return types
-  after `->`, self.method() call stripping, closure isolation. Second
-  extractor to pass all tests first try (29/29). Registered on [.rs].
-  255/255 total tests pass.)*
+  *(2026-04-10, updated after multiple review rounds:
+  `src/pensieve/extractors/typescript.py`. Extends JS extractor with:
+  interface_declaration, type_alias_declaration, enum_declaration,
+  accessibility_modifier (public/private/protected), typed parameters,
+  return type annotations, `import type` (kind="import_type"), TSX
+  via language_tsx(). TS-specific export handling: `export type { X }`
+  gets kind="type", `export type { X } from './Y'` produces both
+  Export(kind="type") AND Import(kind="import_type"), `export * as ns`
+  namespace re-exports, named-import aliases (same as B5). Registered
+  on [.ts, .tsx].)*
+- [x] **B7.** Implement Go extractor. *(2026-04-10, updated after
+  reviews: Go-specific handling for receivers, structs, interfaces,
+  const blocks (including multi-name const specs), grouped type (...)
+  declarations, import blocks with aliases/blank imports,
+  capitalization-as-visibility, Go doc comments, multiple return
+  types. 26 tests.)*
+- [x] **B8.** Implement Java extractor. *(2026-04-10, updated after
+  reviews: class/interface/enum, method/constructor, access modifiers,
+  Javadoc, wildcard imports (import X.*), static wildcard imports,
+  static final constants, overloaded method call-edge disambiguation
+  via line_start matching, annotations in signatures. 28 tests.)*
+- [x] **B9.** Implement Rust extractor. *(2026-04-10, updated after
+  reviews: function_item, impl_item (inherent + trait), trait_item
+  with default method implementations (call edges collected), struct/
+  enum/type_alias/const, use declarations (simple + nested + glob +
+  `use X as Y` aliases + grouped `{Read as IoRead, Write}`),
+  pub/pub(crate) visibility, `///` doc comments, self parameter
+  handling, closure isolation. 29 tests.)*
 
-  **ALL 6 LANGUAGE EXTRACTORS COMPLETE (B4–B9).** Total: Python, JS,
-  TS, Go, Java, Rust. 255 tests across 10 test files. Registered
-  extensions: .py, .js, .mjs, .cjs, .ts, .tsx, .go, .java, .rs.
-  Architecture consistent: 3-pass (declarations → call edges →
-  rationale comments), flat symbols with parent, continuous confidence
-  scores, schema-validated output.
-- [x] **B10.** Implement comment-tag extraction across all languages
-  (`# WHY:`, `# NOTE:`, `# IMPORTANT:`, `# HACK:`, `# TODO:`,
-  language-aware comment syntaxes).
+  **ALL 6 LANGUAGE EXTRACTORS (B4–B9)** across 6 languages, 11
+  registered extensions (.py .js .mjs .cjs .ts .tsx .go .java .rs).
+  Consistent 3-pass architecture. Lazy-loading registry (one broken
+  module doesn't take down others). Hardened through 8+ review rounds.
+- [x] **B10.** Implement comment-tag extraction across all languages.
+  *(Consolidated into shared `_comments.py` module. Canonical tag list
+  (WHY, NOTE, IMPORTANT, HACK, TODO, FIXME). Universal regex handles
+  #, //, /* */ prefixes. Pre-built doc-comment filters (JSDoc, Rust
+  ///). All 6 extractors delegate to shared module. 19 tests.)*
 - [x] **B11.** Implement SHA256 cache layer in `agent-docs/.cache/`.
-  Re-runs only re-extract files whose hash changed. *(2026-04-10:
-  `src/pensieve/cache.py` — `ExtractionCache` class keyed by SHA256
-  of file content. get/put/has/invalidate/clear/stats API. Version-
-  aware invalidation (extractor_version mismatch → cache miss).
-  Corrupted-file resilience (JSON parse errors → warning + cache miss,
-  never crash). Lazy directory creation on first put(). Hash integrity
-  check (cached sha256 must match lookup key). Documented: caller must
-  fix file_path on shared-content cache hits. 29 tests covering all
-  5 identified failure cases + normal path + real extraction round-trip.
-  332/332 total tests pass. Not implemented: concurrent-write safety
-  (not needed for single-agent usage).)*
+  *(Updated after reviews: keyed by (SHA256, extension) — same content
+  in different languages gets separate entries. Invalidation key is
+  EXTRACTOR_HASH (SHA256 of all extractor source files), not package
+  version — auto-invalidates when any extractor code changes, zero
+  developer discipline required. Schema validation on load via
+  validate_extraction(). Corrupted/invalid entries → cache miss +
+  warning. 38 tests.)*
 - [x] **B12.** Implement `pensieve scan <repo>` — full repo extraction,
-  produces `agent-docs/structure.json`. *(2026-04-10:
-  `src/pensieve/scan.py` with `scan_repo()` + `_collect_files()`.
-  CLI subcommand `pensieve scan <path> [--output-dir]` registered in
-  cli.py. Walks repo, detects files by supported extension, extracts
-  via extract_file() with SHA256 cache from B11, normalizes file_path
-  to relative (fixes review finding #4), writes structure.json.
-  Default ignore patterns for 15+ common dirs (node_modules, .git,
-  vendor, __pycache__, .venv, agent-docs, etc.) with os.walk pruning
-  (ignored subtrees are never traversed). Validates fresh extractor
-  output via validate_extraction() before caching or writing —
-  schema-invalid extractions go to errors channel, not files[].
-  extract_file()→None on supported extensions counted as failure, not
-  skip. 24 tests covering: file detection with pruning verification,
-  mixed-language scan, cache behavior, ignore patterns, CLI dispatch,
-  empty/error cases, invalid extractor output, None-on-supported-file.
-  SCOPE NOTE: graph.json deferred to B13 (cross-file edges needed).
-  363/363 total tests pass.)*
+  produces `agent-docs/structure.json` + `graph.json`.
+  *(Updated after reviews: validates fresh extractor output before
+  caching/writing — schema-invalid → errors channel, not files[].
+  extract_file()→None on supported ext → recorded failure, not skip.
+  os.walk with in-place prune (ignored dirs never traversed). Writes
+  graph.json alongside structure.json via build_graph(). 24 tests.)*
 - [x] **B13.** Aggregate cross-file edges: import graph, call graph (where
-  resolvable), file→test mapping via naming heuristics. *(2026-04-10:
-  `src/pensieve/graph.py` with `build_graph()`. Module index maps
-  importable names → file paths (handles absolute, dotted, relative,
-  __init__.py). Import edges resolved for all in-repo modules; external
-  imports (stdlib, third-party) tracked separately. Cross-file call edges
-  resolved through import tracking: if main.py imports helper from
-  utils.py AND main() calls helper(), a cross-file call edge is created.
-  Test→source mapping via naming heuristics (test_*.py, *_test.py,
-  tests/ directory); test-importing-test filtered out. graph.json
-  written by scan_repo() alongside structure.json. 23 tests covering
-  import edges, external imports, circular imports, cross-file calls,
-  unresolved calls, test detection, relative imports, node structure,
-  and two integration tests with scan_repo().
-  KNOWN LIMITATIONS: wildcard imports unresolvable without runtime
-  analysis; Go import paths (URL-style) and Java package-qualified
-  imports have lower resolution accuracy than Python/JS/TS.
-  386/386 total tests pass.)*
+  resolvable), file→test mapping via naming heuristics. *(2026-04-10,
+  updated after multiple review rounds:
+  `src/pensieve/graph.py` with `build_graph()`. Module resolution:
+  absolute, dotted, relative (Python + JS/TS path-style), __init__.py
+  packages. Ambiguous stems → no edge (not a wrong edge). Extension
+  ambiguity → prefer importer's extension, else unresolved.
+
+  Graph-level semantics (documented in module docstring):
+  - Import edges: module-level, deduped by (source, target).
+  - Call edges: function-level, NOT deduped. Each caller→callee preserved.
+  - Test edges: module-level, deduped. Test→test imports filtered.
+  - import_count: unique modules, not Import records.
+
+  Cross-file call resolution:
+  - Named imports: callee must exist as symbol in target (confidence 1.0).
+  - Aliased named imports: alias tracked → original name checked in target.
+  - Default imports: call edge only if target has callable default export
+    (function/method, confidence 0.8). Classes and constants excluded.
+  - Anonymous callable defaults (export default function() {},
+    export default () => {}): detected via Export(name="<default>") —
+    no synthetic Symbol in canonical data, graph treats as callable.
+  - Namespace imports (names=["*"]): no default-import call edge.
+
+  JS/TS re-export support (added post-review):
+  - export { X } from './Y' and export * from './Y' produce Import
+    records so graph creates dependency edges for barrel files.
+  - export * as ns from './Y' emits Export(name="ns", kind="re_export").
+  - export { X as Y } records public name Y, not original name X.
+  - TS export type { X } from './Y' produces Import(kind="import_type").
+
+  Additional fixes post-review:
+  - Type-only imports (import_type) excluded from call resolution —
+    create file-level dependency edges but never runtime call edges.
+  - TS `export default interface` / `export default enum` → kind="default".
+
+  KNOWN LIMITATIONS: wildcard re-exports don't track individual names;
+  re-exported defaults don't chain (single-pass); Go URL-style imports
+  and Java package-qualified imports have lower resolution accuracy.
+
+  **Phase B Layer 1 total: 529 tests across 24 test files, all passing.**)*
 - [ ] **B14.** Update Phase 2 deep-dive prompts to consume `structure.json`
   + 5–10 sample files chosen by centrality, instead of reading every file
   in the subsystem.

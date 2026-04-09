@@ -380,11 +380,27 @@ def _extract_arrow_function(node: Node, source: bytes) -> Symbol | None:
 def _extract_ts_exports(node: Node, source: bytes) -> list[Export]:
     """Extract from export_statement — extends JS version with TS types.
 
-    Handles `export interface X`, `export type X`, `export enum X` in
-    addition to everything the JS `_extract_exports` handles.
+    Handles `export interface X`, `export type X`, `export enum X`,
+    and `export type { X } from './Y'` in addition to everything the
+    JS `_extract_exports` handles.
     """
     results = _extract_js_exports(node, source)
     line = node.start_point[0] + 1
+
+    # Detect `export type { ... }` — has a `type` child between
+    # `export` and `export_clause`. Override kind to "type" for
+    # all exports from this statement.
+    is_type_export = any(
+        child.type == "type" for child in node.children
+    )
+    if is_type_export:
+        for exp in results:
+            if exp.kind in ("named", "re_export"):
+                exp.kind = "type"
+
+    has_default = any(
+        c.type == "default" for c in node.children
+    )
 
     for child in node.children:
         if child.type == "interface_declaration":
@@ -392,7 +408,7 @@ def _extract_ts_exports(node: Node, source: bytes) -> list[Export]:
             if name_n:
                 results.append(Export(
                     name=_node_text(name_n, source),
-                    kind="named",
+                    kind="default" if has_default else "named",
                     line=line,
                 ))
         elif child.type == "type_alias_declaration":
@@ -408,7 +424,7 @@ def _extract_ts_exports(node: Node, source: bytes) -> list[Export]:
             if name_n:
                 results.append(Export(
                     name=_node_text(name_n, source),
-                    kind="named",
+                    kind="default" if has_default else "named",
                     line=line,
                 ))
 
@@ -492,6 +508,18 @@ def extract_typescript(path: Path) -> FileExtraction:
 
             elif child.type == "export_statement":
                 exports.extend(_extract_ts_exports(child, source))
+                # Re-exports: import record for graph dependency edge.
+                # Detect `export type { ... } from ...` to use import_type kind.
+                from pensieve.extractors.javascript import _extract_reexport_import
+                is_type_reexport = any(
+                    sub.type == "type" for sub in child.children
+                )
+                reexport_imp = _extract_reexport_import(
+                    child, source,
+                    import_kind="import_type" if is_type_reexport else "import",
+                )
+                if reexport_imp:
+                    imports.append(reexport_imp)
                 # Also extract declarations inside exports
                 for sub in child.children:
                     if sub.type == "function_declaration":

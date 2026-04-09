@@ -414,7 +414,12 @@ def build_graph(
                     detail=imp.module + (f" ({', '.join(imp.names)})" if imp.names else ""),
                     line=imp.line,
                 ))
-                # Track imported names for call resolution
+                # Track imported names for call resolution — but NOT
+                # type-only imports (import_type). Type imports create
+                # file-level dependency edges but should never produce
+                # runtime call edges.
+                if imp.kind == "import_type":
+                    continue
                 for name in imp.names:
                     if name and name != "*":
                         imported_names[ext.file_path][name] = (resolved, name, False)

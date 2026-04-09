@@ -337,6 +337,59 @@ def _extract_require(node: Node, source: bytes) -> Import | None:
     return None
 
 
+def _extract_reexport_import(
+    node: Node,
+    source: bytes,
+    import_kind: str = "import",
+) -> Import | None:
+    """If an export_statement is a re-export (has a `from` source),
+    create an Import record so the graph layer creates a dependency edge.
+
+    Handles: export { X } from './Y', export * from './Y',
+             export * as ns from './Y'
+    Returns None for non-re-export statements.
+
+    Args:
+        import_kind: The kind to set on the Import. Callers can override
+            for TS type re-exports ("import_type").
+    """
+    # Detect re-export: look for a string child after "from"
+    source_module = None
+    found_from = False
+    for child in node.children:
+        if child.type == "from":
+            found_from = True
+        elif found_from and child.type == "string":
+            raw = _node_text(child, source)
+            source_module = raw.strip("'\"")
+            break
+
+    if not source_module:
+        return None
+
+    line = node.start_point[0] + 1
+
+    # Collect re-exported names
+    names: list[str] = []
+    is_star = False
+    for child in node.children:
+        if child.type == "export_clause":
+            for spec in child.children:
+                if spec.type == "export_specifier":
+                    name_n = spec.child_by_field_name("name")
+                    if name_n:
+                        names.append(_node_text(name_n, source))
+        elif child.type == "*" or child.type == "namespace_export":
+            is_star = True
+
+    return Import(
+        module=source_module,
+        names=["*"] if is_star else names,
+        line=line,
+        kind=import_kind,
+    )
+
+
 def _extract_exports(node: Node, source: bytes) -> list[Export]:
     """Extract from an export_statement."""
     results: list[Export] = []
@@ -374,16 +427,37 @@ def _extract_exports(node: Node, source: bytes) -> list[Export]:
                 results.append(Export(name="<default>", kind="default", line=line))
                 break
     else:
+        # Detect if this is a re-export (has `from` source) to set kind
+        is_reexport = any(c.type == "from" for c in node.children)
+
         # `export { name1, name2 }` or `export function ...` or `export class ...`
+        # or `export * as ns from './bar'`
         for child in node.children:
-            if child.type == "export_clause":
+            if child.type == "namespace_export":
+                # export * as ns from './bar' → Export(name="ns", kind="re_export")
+                for sub in child.children:
+                    if sub.type == "identifier":
+                        results.append(Export(
+                            name=_node_text(sub, source),
+                            kind="re_export",
+                            line=line,
+                        ))
+                        break
+            elif child.type == "export_clause":
                 for spec in child.children:
                     if spec.type == "export_specifier":
                         name_n = spec.child_by_field_name("name")
+                        alias_n = spec.child_by_field_name("alias")
                         if name_n:
+                            # Public name = alias if present, else original name
+                            public_name = (
+                                _node_text(alias_n, source) if alias_n
+                                else _node_text(name_n, source)
+                            )
+                            kind = "re_export" if is_reexport else "named"
                             results.append(Export(
-                                name=_node_text(name_n, source),
-                                kind="named",
+                                name=public_name,
+                                kind=kind,
                                 line=line,
                             ))
             elif child.type == "function_declaration":
@@ -529,6 +603,11 @@ def extract_javascript(path: Path) -> FileExtraction:
 
             elif child.type == "export_statement":
                 exports.extend(_extract_exports(child, source))
+                # Re-exports: export { X } from './Y' or export * from './Y'
+                # These need an Import record so B13 creates a dependency edge.
+                reexport_imp = _extract_reexport_import(child, source)
+                if reexport_imp:
+                    imports.append(reexport_imp)
                 # Also extract declarations inside exports
                 for sub in child.children:
                     if sub.type == "function_declaration":
