@@ -94,6 +94,29 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output-dir", type=str, default=None,
         help="Output directory (default: <repo>/agent-docs)",
     )
+    analyze_parser.add_argument(
+        "--proposal-timeout", type=int, default=300,
+        help="Timeout in seconds for subsystem proposal LLM call (default: 300)",
+    )
+    analyze_parser.add_argument(
+        "--selection-timeout", type=int, default=300,
+        help="Timeout in seconds for per-subsystem file selection LLM call (default: 300)",
+    )
+    analyze_parser.add_argument(
+        "--doc-timeout", type=int, default=300,
+        help="Timeout in seconds for per-subsystem doc generation LLM call (default: 300)",
+    )
+    analyze_parser.add_argument(
+        "--synthesis-timeout", type=int, default=300,
+        help="Timeout in seconds for each synthesis LLM call (default: 300)",
+    )
+    analyze_parser.add_argument(
+        "--analyze-parallelism", type=int, default=1,
+        help=(
+            "Number of subsystems to process concurrently in stages 3-4 "
+            "(default: 1 = sequential). Does not affect proposal or synthesis."
+        ),
+    )
 
     # --- wire subcommand ---
     wire_parser = subparsers.add_parser(
@@ -564,7 +587,11 @@ def _cmd_analyze(args) -> int:
         save_subsystem_doc,
         synthesize_docs,
         save_synthesis,
+        SubsystemDoc,
+        SubsystemProposal,
+        SubsystemMap,
     )
+    from pensieve.checkpoint import AnalyzeCheckpoint
 
     def _log(msg: str) -> None:
         print(msg, flush=True)
@@ -575,6 +602,14 @@ def _cmd_analyze(args) -> int:
         return 1
 
     model = args.model
+    proposal_timeout = args.proposal_timeout
+    selection_timeout = args.selection_timeout
+    doc_timeout = args.doc_timeout
+    synthesis_timeout = args.synthesis_timeout
+    analyze_parallelism = args.analyze_parallelism
+    if analyze_parallelism < 1:
+        print("pensieve analyze: --analyze-parallelism must be >= 1", file=sys.stderr)
+        return 1
     output_dir = Path(args.output_dir) if args.output_dir else repo_root / "agent-docs"
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -600,51 +635,180 @@ def _cmd_analyze(args) -> int:
         print("pensieve analyze: scan failed to produce graph.json", file=sys.stderr)
         return 1
 
+    # --- Checkpoint validation ---
+    ckpt = AnalyzeCheckpoint(output_dir, model)
+    if ckpt.validate(structure_path, graph_path):
+        _log("  checkpoints: valid (will reuse completed stages)")
+    else:
+        _log("  checkpoints: stale or missing (will recompute)")
+        ckpt.clear()
+        ckpt.save_fingerprint(structure_path, graph_path)
+
     # --- Stage 2: Profile directories + propose subsystems ---
     _log("[2/5] Profiling directories and proposing subsystems...")
     profile = profile_directories(structure_path, graph_path)
     _log(f"  {len(profile.directories)} directories profiled, {profile.total_edges} edges")
 
-    smap = propose_subsystems(profile, model=model)
-    if smap.error:
-        print(f"pensieve analyze: subsystem proposal failed: {smap.error}", file=sys.stderr)
-        return 1
+    # Check checkpoint for subsystem map
+    cached_map = ckpt.load_subsystem_map() if ckpt.has_subsystem_map() else None
+    if cached_map:
+        _log("  subsystem map: [reused from checkpoint]")
+        smap = SubsystemMap(
+            subsystems=[
+                SubsystemProposal(**s) for s in cached_map.get("subsystems", [])
+            ],
+            excluded=cached_map.get("excluded", []),
+        )
+    else:
+        smap = propose_subsystems(profile, model=model, timeout_seconds=proposal_timeout)
+        if smap.error:
+            print(f"pensieve analyze: subsystem proposal failed: {smap.error}", file=sys.stderr)
+            return 1
+        # Save checkpoint
+        ckpt.save_subsystem_map({
+            "subsystems": [
+                {"name": s.name, "directories": s.directories,
+                 "role": s.role, "rationale": s.rationale}
+                for s in smap.subsystems
+            ],
+            "excluded": smap.excluded,
+        })
+        _log("  subsystem map: [computed]")
 
-    _log(f"  {len(smap.subsystems)} subsystems proposed:")
+    _log(f"  {len(smap.subsystems)} subsystems:")
     for s in smap.subsystems:
         _log(f"    - {s.name} ({', '.join(s.directories)})")
     if smap.excluded:
         _log(f"  {len(smap.excluded)} directories excluded")
 
     # --- Stage 3: Select files per subsystem ---
-    _log(f"[3/5] Selecting key files for {len(smap.subsystems)} subsystems...")
-    selections: dict[str, FileSelection] = {}
-    for i, sub in enumerate(smap.subsystems, 1):
-        sel = select_files_for_subsystem(sub, structure_path, model=model)
-        selections[sub.name] = sel
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    par_label = f"  parallelism: {analyze_parallelism}" if analyze_parallelism > 1 else ""
+    _log(f"[3/5] Selecting key files for {len(smap.subsystems)} subsystems...{par_label}")
+
+    def _select_one(idx_sub):
+        idx, sub = idx_sub
+        # Check checkpoint
+        cached = ckpt.load_selection(sub.name) if ckpt.has_selection(sub.name) else None
+        if cached:
+            sel = FileSelection(
+                files=cached.get("files", []),
+                error=cached.get("error"),
+            )
+            return (idx, sub.name, sel, True)  # True = reused
+        sel = select_files_for_subsystem(
+            sub, structure_path, model=model, timeout_seconds=selection_timeout,
+        )
+        # Only checkpoint successful selections — transient errors must not
+        # be cached and replayed on rerun.
+        if not sel.error:
+            ckpt.save_selection(sub.name, {
+                "files": sel.files,
+            })
+        return (idx, sub.name, sel, False)  # False = computed
+
+    def _log_selection(idx, name, sel, reused):
+        tag = "[reused]" if reused else "[computed]"
         if sel.error:
-            _log(f"  {i}. {sub.name}: ERROR — {sel.error}")
+            _log(f"  {idx+1}. {name}: ERROR — {sel.error} {tag}")
         else:
-            _log(f"  {i}. {sub.name}: {len(sel.files)} files selected")
+            _log(f"  {idx+1}. {name}: {len(sel.files)} files selected {tag}")
+
+    selections: dict[str, FileSelection] = {}
+    if analyze_parallelism <= 1:
+        for i, sub in enumerate(smap.subsystems):
+            _, name, sel, reused = _select_one((i, sub))
+            selections[name] = sel
+            _log_selection(i, name, sel, reused)
+    else:
+        indexed_sels: list[tuple[int, str, FileSelection]] = []
+        with ThreadPoolExecutor(max_workers=analyze_parallelism) as pool:
+            futures = {
+                pool.submit(_select_one, (i, sub)): i
+                for i, sub in enumerate(smap.subsystems)
+            }
+            for future in as_completed(futures):
+                try:
+                    idx, name, sel, reused = future.result()
+                    indexed_sels.append((idx, name, sel))
+                    _log_selection(idx, name, sel, reused)
+                except Exception as exc:
+                    idx = futures[future]
+                    name = smap.subsystems[idx].name
+                    _log(f"  {idx+1}. {name}: CRASHED — {exc}")
+                    indexed_sels.append((idx, name, FileSelection(files=[], error=str(exc))))
+        for _, name, sel in sorted(indexed_sels, key=lambda x: x[0]):
+            selections[name] = sel
 
     # --- Stage 4: Generate subsystem docs ---
-    _log(f"[4/5] Generating subsystem documentation...")
-    docs = []
-    for i, sub in enumerate(smap.subsystems, 1):
-        sel = selections.get(sub.name, FileSelection(files=[]))
-        _log(f"  {i}/{len(smap.subsystems)} {sub.name}...")
+    _log(f"[4/5] Generating subsystem documentation...{par_label}")
+
+    def _generate_one(idx_sub_sel):
+        idx, sub, sel = idx_sub_sel
+        # Check checkpoint
+        cached_md = ckpt.load_doc(sub.name) if ckpt.has_doc(sub.name) else None
+        if cached_md:
+            doc = SubsystemDoc(
+                subsystem_name=sub.name,
+                markdown=cached_md,
+                files_read=[f["file_path"] for f in sel.files],
+            )
+            return (idx, doc, True)  # reused
         doc = generate_subsystem_doc(
             sub, structure_path, sel, repo_root, model=model,
+            timeout_seconds=doc_timeout,
         )
-        docs.append(doc)
+        if not doc.error and doc.markdown:
+            ckpt.save_doc(sub.name, doc.markdown)
+        return (idx, doc, False)  # computed
+
+    def _log_doc(sub_name, doc, reused):
+        tag = "[reused]" if reused else "[computed]"
         if doc.error:
-            _log(f"    ERROR: {doc.error}")
+            _log(f"    {sub_name}: ERROR: {doc.error} {tag}")
         else:
             path = save_subsystem_doc(doc, output_dir)
-            _log(f"    -> {path} ({len(doc.markdown)} chars, {len(doc.files_read)} files read)")
+            _log(f"    {sub_name}: -> {path} ({len(doc.markdown)} chars) {tag}")
 
-    successful = [d for d in docs if not d.error]
-    failed = [d for d in docs if d.error]
+    docs = [None] * len(smap.subsystems)
+    if analyze_parallelism <= 1:
+        for i, sub in enumerate(smap.subsystems):
+            sel = selections.get(sub.name, FileSelection(files=[]))
+            _log(f"  {i+1}/{len(smap.subsystems)} {sub.name}...")
+            _, doc, reused = _generate_one((i, sub, sel))
+            docs[i] = doc
+            _log_doc(sub.name, doc, reused)
+    else:
+        indexed_docs: list[tuple[int, SubsystemDoc]] = []
+        with ThreadPoolExecutor(max_workers=analyze_parallelism) as pool:
+            jobs = []
+            for i, sub in enumerate(smap.subsystems):
+                sel = selections.get(sub.name, FileSelection(files=[]))
+                _log(f"  {i+1}/{len(smap.subsystems)} {sub.name}...")
+                jobs.append((i, sub, sel))
+            futures = {
+                pool.submit(_generate_one, job): job[0]
+                for job in jobs
+            }
+            for future in as_completed(futures):
+                idx = futures[future]
+                sub = smap.subsystems[idx]
+                try:
+                    _, doc, reused = future.result()
+                    indexed_docs.append((idx, doc))
+                    _log_doc(sub.name, doc, reused)
+                except Exception as exc:
+                    _log(f"    {sub.name}: CRASHED: {exc}")
+                    indexed_docs.append((idx, SubsystemDoc(
+                        subsystem_name=sub.name, markdown="",
+                        files_read=[], error=f"Worker crashed: {exc}",
+                    )))
+        for idx, doc in sorted(indexed_docs, key=lambda x: x[0]):
+            docs[idx] = doc
+
+    successful = [d for d in docs if d and not d.error]
+    failed = [d for d in docs if d and d.error]
     _log(f"  {len(successful)} docs generated, {len(failed)} failed")
 
     # --- Stage 5: Synthesize top-level artifacts ---
@@ -653,7 +817,7 @@ def _cmd_analyze(args) -> int:
         return 1
 
     _log(f"[5/5] Synthesizing patterns.md, agent-context.md, agent-context-nano.md...")
-    synthesis = synthesize_docs(successful, profile, model=model)
+    synthesis = synthesize_docs(successful, profile, model=model, timeout_seconds=synthesis_timeout)
     paths = save_synthesis(synthesis, output_dir)
     for p in paths:
         _log(f"  -> {p}")

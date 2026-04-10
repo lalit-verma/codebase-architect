@@ -1136,3 +1136,203 @@ class TestSaveSynthesis:
         paths = save_synthesis(result, nested)
         assert len(paths) == 3
         assert nested.exists()
+
+
+# ---------------------------------------------------------------------------
+# Analyze parallelism equivalence tests
+# ---------------------------------------------------------------------------
+
+
+class TestAnalyzeParallelEquivalence:
+    """Verify that parallel stage 3/4 produce same results as sequential."""
+
+    def _make_subsystems(self):
+        return [
+            SubsystemProposal(
+                name="Routers", directories=["src/routers"],
+                role="HTTP handlers", rationale="test",
+            ),
+            SubsystemProposal(
+                name="Models", directories=["src/models"],
+                role="Data layer", rationale="test",
+            ),
+            SubsystemProposal(
+                name="Utils", directories=["src/utils"],
+                role="Shared utilities", rationale="test",
+            ),
+        ]
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_stage3_sequential_and_parallel_equivalent(self, mock_run, tmp_path):
+        """File selection results must be identical regardless of parallelism."""
+        sp = _write_structure(tmp_path, [
+            _file("src/routers/a.py", symbols=[_sym("handler")]),
+            _file("src/models/b.py", symbols=[_sym("Model")]),
+            _file("src/utils/c.py", symbols=[_sym("helper")]),
+        ])
+
+        # Mock returns a deterministic response based on subsystem name
+        def _mock_select(cmd, **kwargs):
+            prompt = cmd[-1]
+            if "Routers" in prompt:
+                files = [{"file_path": "src/routers/a.py", "reason": "handler"}]
+            elif "Models" in prompt:
+                files = [{"file_path": "src/models/b.py", "reason": "model"}]
+            else:
+                files = [{"file_path": "src/utils/c.py", "reason": "util"}]
+            return mock.MagicMock(
+                stdout=json.dumps({
+                    "type": "result", "is_error": False, "result": "",
+                    "structured_output": {"files": files},
+                }),
+                stderr="", returncode=0,
+            )
+        mock_run.side_effect = _mock_select
+
+        subsystems = self._make_subsystems()
+
+        # Sequential
+        seq_results = {}
+        for sub in subsystems:
+            sel = select_files_for_subsystem(sub, sp)
+            seq_results[sub.name] = sel
+
+        # Reset mock call count
+        mock_run.reset_mock()
+        mock_run.side_effect = _mock_select
+
+        # Parallel (via ThreadPoolExecutor directly)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        par_results = {}
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {
+                pool.submit(select_files_for_subsystem, sub, sp): sub.name
+                for sub in subsystems
+            }
+            for future in as_completed(futures):
+                name = futures[future]
+                par_results[name] = future.result()
+
+        # Compare
+        for name in seq_results:
+            seq = seq_results[name]
+            par = par_results[name]
+            assert seq.error == par.error, f"{name}: error mismatch"
+            assert len(seq.files) == len(par.files), f"{name}: file count mismatch"
+            for sf, pf in zip(seq.files, par.files):
+                assert sf["file_path"] == pf["file_path"], f"{name}: file path mismatch"
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_stage4_output_ordering_stable(self, mock_run, tmp_path):
+        """Doc generation must produce results in subsystem order regardless
+        of completion order."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        for name in ("a.py", "b.py", "c.py"):
+            d = repo / "src" / name.replace(".py", "")
+            d.mkdir(parents=True, exist_ok=True)
+            (d / name).write_text(f"def {name[0]}(): pass\n")
+
+        sp = ad / "structure.json"
+        sp.write_text(json.dumps({
+            "repo_root": str(repo),
+            "files": [
+                _file(f"src/{n.replace('.py','')}/{n}", symbols=[_sym(n[0])])
+                for n in ("a.py", "b.py", "c.py")
+            ],
+            "errors": [], "extractor_version": "test",
+        }))
+
+        import time as time_mod
+        call_count = [0]
+
+        def _mock_doc(cmd, **kwargs):
+            call_count[0] += 1
+            prompt = cmd[-1]
+            # Extract subsystem name from prompt
+            for name in ("First", "Second", "Third"):
+                if name in prompt:
+                    return mock.MagicMock(
+                        stdout=f"# {name} doc\n", stderr="", returncode=0,
+                    )
+            return mock.MagicMock(stdout="# Unknown\n", stderr="", returncode=0)
+
+        mock_run.side_effect = _mock_doc
+
+        subsystems = [
+            SubsystemProposal(name="First", directories=["src/a"], role="a", rationale=""),
+            SubsystemProposal(name="Second", directories=["src/b"], role="b", rationale=""),
+            SubsystemProposal(name="Third", directories=["src/c"], role="c", rationale=""),
+        ]
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        indexed = []
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {
+                pool.submit(
+                    generate_subsystem_doc,
+                    sub, sp, FileSelection(files=[]), repo,
+                ): i
+                for i, sub in enumerate(subsystems)
+            }
+            for future in as_completed(futures):
+                idx = futures[future]
+                doc = future.result()
+                indexed.append((idx, doc))
+
+        indexed.sort(key=lambda x: x[0])
+        names = [doc.subsystem_name for _, doc in indexed]
+        assert names == ["First", "Second", "Third"]
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_one_subsystem_failure_does_not_abort_others(self, mock_run, tmp_path):
+        """A failing subsystem in parallel mode should not stop others."""
+        sp = _write_structure(tmp_path, [
+            _file("src/good/a.py", symbols=[_sym("a")]),
+            _file("src/bad/b.py", symbols=[_sym("b")]),
+            _file("src/also_good/c.py", symbols=[_sym("c")]),
+        ])
+
+        call_count = [0]
+
+        def _mock_with_failure(cmd, **kwargs):
+            call_count[0] += 1
+            prompt = cmd[-1]
+            if "Bad" in prompt:
+                raise RuntimeError("Deliberate failure")
+            return mock.MagicMock(
+                stdout=json.dumps({
+                    "type": "result", "is_error": False, "result": "",
+                    "structured_output": {"files": [{"file_path": "x.py", "reason": "ok"}]},
+                }),
+                stderr="", returncode=0,
+            )
+
+        mock_run.side_effect = _mock_with_failure
+
+        subsystems = [
+            SubsystemProposal(name="Good", directories=["src/good"], role="a", rationale=""),
+            SubsystemProposal(name="Bad", directories=["src/bad"], role="b", rationale=""),
+            SubsystemProposal(name="AlsoGood", directories=["src/also_good"], role="c", rationale=""),
+        ]
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        results = {}
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {
+                pool.submit(select_files_for_subsystem, sub, sp): sub.name
+                for sub in subsystems
+            }
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    results[name] = future.result()
+                except Exception as exc:
+                    results[name] = FileSelection(files=[], error=str(exc))
+
+        assert results["Good"].error is None
+        assert results["AlsoGood"].error is None
+        # Bad should have an error (either from the mock or caught)
+        assert results["Bad"].error is not None or len(results["Bad"].files) == 0

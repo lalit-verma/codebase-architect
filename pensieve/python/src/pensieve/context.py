@@ -448,7 +448,7 @@ class SubsystemMap:
 def propose_subsystems(
     profile: RepoProfile,
     model: str = "sonnet",
-    timeout_seconds: int = 120,
+    timeout_seconds: int = 300,
 ) -> SubsystemMap:
     """Ask the LLM to propose subsystem boundaries from directory profiles.
 
@@ -759,7 +759,7 @@ def select_files_for_subsystem(
     subsystem: SubsystemProposal,
     structure_path: Path,
     model: str = "sonnet",
-    timeout_seconds: int = 120,
+    timeout_seconds: int = 300,
 ) -> FileSelection:
     """Ask the LLM which files to read in full for a subsystem deep-dive.
 

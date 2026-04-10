@@ -173,3 +173,55 @@ class TestAnalyzeCommand:
         # Should have rescanned (graph was missing)
         captured = capsys.readouterr()
         assert "Scanning repo" in captured.out
+
+    def test_timeout_flags_in_help(self, capsys):
+        """All four timeout flags should appear in analyze --help."""
+        with pytest.raises(SystemExit):
+            main(["analyze", "--help"])
+        captured = capsys.readouterr()
+        assert "--proposal-timeout" in captured.out
+        assert "--selection-timeout" in captured.out
+        assert "--doc-timeout" in captured.out
+        assert "--synthesis-timeout" in captured.out
+
+    def test_timeout_flags_parsed(self):
+        """Timeout flags should be parsed into args without error."""
+        import argparse
+        from pensieve.cli import _build_parser
+        parser = _build_parser()
+        args = parser.parse_args([
+            "analyze", "/tmp/repo",
+            "--proposal-timeout", "600",
+            "--selection-timeout", "400",
+            "--doc-timeout", "500",
+            "--synthesis-timeout", "350",
+        ])
+        assert args.proposal_timeout == 600
+        assert args.selection_timeout == 400
+        assert args.doc_timeout == 500
+        assert args.synthesis_timeout == 350
+
+    def test_analyze_parallelism_flag(self):
+        from pensieve.cli import _build_parser
+        parser = _build_parser()
+        args = parser.parse_args([
+            "analyze", "/tmp/repo", "--analyze-parallelism", "4",
+        ])
+        assert args.analyze_parallelism == 4
+
+    def test_analyze_parallelism_in_help(self, capsys):
+        with pytest.raises(SystemExit):
+            main(["analyze", "--help"])
+        captured = capsys.readouterr()
+        assert "--analyze-parallelism" in captured.out
+
+    def test_analyze_parallelism_invalid_rejected(self, capsys, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "structure.json").write_text('{"repo_root":"x","files":[],"errors":[]}')
+        (ad / "graph.json").write_text('{"nodes":[],"edges":[],"external_imports":[]}')
+        result = main(["analyze", str(repo), "--analyze-parallelism", "0"])
+        assert result == 1
+        assert "must be >= 1" in capsys.readouterr().err
