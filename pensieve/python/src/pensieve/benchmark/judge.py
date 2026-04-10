@@ -91,7 +91,6 @@ def judge_task(
         "--no-session-persistence",
         "--system-prompt", system_prompt,
         "--json-schema", _JUDGE_SCHEMA,
-        "--bare",
         user_prompt,
     ]
 

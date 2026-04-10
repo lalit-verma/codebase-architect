@@ -122,13 +122,13 @@ class TestSuccessfulJudge:
         assert "--json-schema" in cmd
 
     @mock.patch("pensieve.benchmark.judge.subprocess.run")
-    def test_uses_bare_mode(self, mock_run):
-        """Judge should use --bare to skip hooks and CLAUDE.md."""
+    def test_does_not_use_bare_mode(self, mock_run):
+        """Judge must NOT use --bare — it kills OAuth/keychain auth."""
         mock_run.return_value = _mock_run(_make_judge_output())
         judge_task("test", "test")
 
         cmd = mock_run.call_args[0][0]
-        assert "--bare" in cmd
+        assert "--bare" not in cmd
 
 
 # ---------------------------------------------------------------------------
