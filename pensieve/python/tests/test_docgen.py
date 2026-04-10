@@ -324,3 +324,146 @@ class TestOutputOnlyToAgentDocs:
         parser = _build_parser()
         args = parser.parse_args(["analyze", "/tmp/repo"])
         assert not hasattr(args, "output_dir")
+
+
+class TestToolRestriction:
+    """Verify tool access is bounded, not broad auto."""
+
+    @mock.patch("pensieve.docgen.subprocess.run")
+    def test_discover_uses_restricted_tools(self, mock_run, tmp_path):
+        mock_run.return_value = mock.MagicMock(
+            stdout="output", stderr="", returncode=0,
+        )
+        run_discover(tmp_path, "context")
+        cmd = mock_run.call_args[0][0]
+        assert "--allowedTools" in cmd
+        idx = cmd.index("--allowedTools")
+        assert "Read" in cmd[idx + 1]
+        assert "Write" in cmd[idx + 1]
+        # Should NOT have --permission-mode auto
+        assert "--permission-mode" not in cmd
+
+    @mock.patch("pensieve.docgen.subprocess.run")
+    def test_synthesize_uses_restricted_tools(self, mock_run, tmp_path):
+        mock_run.return_value = mock.MagicMock(
+            stdout="output", stderr="", returncode=0,
+        )
+        run_synthesize(tmp_path, "context")
+        cmd = mock_run.call_args[0][0]
+        assert "--allowedTools" in cmd
+        assert "--permission-mode" not in cmd
+
+
+class TestDeepDiveInjectsContext:
+    """Deep-dive should inject analysis-state and system-overview, not rely on Read."""
+
+    @mock.patch("pensieve.docgen.subprocess.run")
+    def test_injects_analysis_state_content(self, mock_run, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+
+        # Create prior analysis files
+        (ad / ".analysis-state.md").write_text("---\nphase_completed: 1\n---\n")
+        (ad / "system-overview.md").write_text("# System Overview\nPurpose: test app\n")
+
+        sp = _write_structure(tmp_path, [
+            _file("src/a.py", symbols=[_sym("main")]),
+        ])
+
+        mock_run.return_value = mock.MagicMock(
+            stdout="# Subsystem Doc\n", stderr="", returncode=0,
+        )
+
+        sub = SubsystemProposal(
+            name="Core", directories=["src"], role="core", rationale="",
+        )
+        generate_subsystem_doc(sub, sp, FileSelection(files=[]), repo)
+
+        cmd = mock_run.call_args[0][0]
+        user_prompt = cmd[-1]
+        # Analysis state and system overview should be IN the prompt
+        assert "phase_completed: 1" in user_prompt
+        assert "Purpose: test app" in user_prompt
+
+
+class TestRealCLIPath:
+    """End-to-end CLI test: pensieve analyze creates artifacts under agent-docs/."""
+
+    def test_analyze_writes_to_agent_docs(self, tmp_path):
+        """A full analyze run (with mocked LLM) should write files
+        under <repo>/agent-docs/ and verify required artifacts."""
+        from pensieve.cli import main
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "main.py").write_text("def main(): pass\n")
+
+        from pensieve.scan import scan_repo
+        scan_repo(repo)
+
+        required_files = [
+            "agent-context.md", "agent-context-nano.md", "patterns.md",
+            "routing-map.md", "system-overview.md", "agent-brief.md",
+            "index.md", "agent-protocol.md",
+        ]
+
+        def _mock_subprocess(cmd, **kwargs):
+            cwd = kwargs.get("cwd", str(repo))
+            ad = Path(cwd) / "agent-docs"
+            ad.mkdir(parents=True, exist_ok=True)
+
+            # Check system prompt to route the mock
+            system_prompt = ""
+            if "--system-prompt" in cmd:
+                sp_idx = cmd.index("--system-prompt")
+                if sp_idx + 1 < len(cmd):
+                    system_prompt = cmd[sp_idx + 1]
+
+            # Phase 3 synthesis: write all required files
+            if "Phase 3" in system_prompt:
+                for name in required_files:
+                    (ad / name).write_text(f"# {name}\nGenerated.\n")
+                return mock.MagicMock(
+                    stdout="Synthesis complete.", stderr="", returncode=0,
+                )
+
+            # Phase 1 discover: write system-overview + analysis-state
+            if "Phase 1" in system_prompt:
+                (ad / "system-overview.md").write_text("# Overview\n")
+                (ad / ".analysis-state.md").write_text("---\nphase_completed: 1\n---\n")
+                return mock.MagicMock(
+                    stdout="---FILE: system-overview.md---\n# Overview\n",
+                    stderr="", returncode=0,
+                )
+
+            # Default: structured JSON for proposals/selections,
+            # or plain text for deep-dive
+            return mock.MagicMock(
+                stdout=json.dumps({
+                    "type": "result", "is_error": False, "result": "",
+                    "structured_output": {
+                        "subsystems": [
+                            {"name": "Core", "directories": ["(root)"],
+                             "role": "main", "rationale": "x"},
+                        ],
+                        "excluded": [],
+                        "files": [],
+                    },
+                }),
+                stderr="", returncode=0,
+            )
+
+        with mock.patch("pensieve.context.subprocess.run", side_effect=_mock_subprocess):
+            with mock.patch("pensieve.docgen.subprocess.run", side_effect=_mock_subprocess):
+                result = main(["analyze", str(repo)])
+
+        ad = repo / "agent-docs"
+        assert ad.exists()
+
+        for name in required_files:
+            assert (ad / name).exists(), f"Missing required artifact: {name}"
+
+        assert (ad / "route-index.json").exists()
+        assert result == 0

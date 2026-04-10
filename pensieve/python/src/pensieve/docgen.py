@@ -81,8 +81,8 @@ def _call_llm(
     """Call Claude Code in text mode. Returns (output, error_or_none).
 
     Args:
-        allow_tools: If True, run with --permission-mode auto so Claude
-            can use Read/Write/Bash tools to write files directly.
+        allow_tools: If True, enable bounded tool access
+            (Read, Write, Glob, Grep only — no Bash, no broad auto).
     """
     cmd = [
         "claude", "-p",
@@ -92,7 +92,10 @@ def _call_llm(
         "--system-prompt", system_prompt,
     ]
     if allow_tools:
-        cmd.extend(["--permission-mode", "auto"])
+        cmd.extend([
+            "--allowedTools", "Read,Write,Glob,Grep",
+            "--dangerously-skip-permissions",
+        ])
     cmd.append(user_prompt)
     kwargs: dict = {
         "capture_output": True,
@@ -284,6 +287,20 @@ def generate_subsystem_doc(
         except OSError:
             continue
 
+    # Read analysis-state and system-overview if they exist —
+    # inject into prompt so the model doesn't need to Read them itself
+    prior_context = ""
+    for doc_name in (".analysis-state.md", "system-overview.md"):
+        doc_path = repo_root / "agent-docs" / doc_name
+        if doc_path.exists():
+            try:
+                doc_content = doc_path.read_text(encoding="utf-8", errors="replace")
+                if len(doc_content) > 5000:
+                    doc_content = doc_content[:5000] + "\n[TRUNCATED]\n"
+                prior_context += f"### {doc_name}\n```\n{doc_content}\n```\n\n"
+            except OSError:
+                pass
+
     # Adapt v1 prompt for programmatic use
     system_prompt = (
         v1_prompt.replace("$ARGUMENTS", subsystem.name) +
@@ -293,10 +310,14 @@ def generate_subsystem_doc(
         "Proceed with a single flat document. "
         "Output ONLY the subsystem document markdown. "
         "Do NOT include the analysis-state update. "
-        "Keep the document under 150 lines."
+        "Keep the document under 150 lines. "
+        "The analysis state and system overview are provided below — "
+        "do NOT try to Read them yourself."
     )
 
     user_prompt = (
+        f"## Prior analysis (from Phase 1)\n\n"
+        f"{prior_context}"
         f"## Layer 1 Structural Evidence for '{subsystem.name}'\n\n"
         f"Directories: {', '.join(subsystem.directories)}\n"
         f"Role: {subsystem.role}\n\n"
@@ -311,7 +332,7 @@ def generate_subsystem_doc(
     output, err = _call_llm(
         system_prompt, user_prompt,
         model=model, timeout_seconds=timeout_seconds,
-        cwd=str(repo_root),
+        cwd=str(repo_root), allow_tools=True,
     )
 
     if err:
