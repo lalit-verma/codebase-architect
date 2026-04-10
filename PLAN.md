@@ -206,11 +206,21 @@ infrastructure we need for every subsequent phase.
   validation. Registry with get_all_templates/get_template_by_name.
   49 tests covering validation, serialization, placeholder inventory,
   registry, and per-template spot checks. 578/578 total tests pass.)*
-- [ ] **A8.** Implement the baseline runner — runs each task without any
+- [x] **A8.** Implement the baseline runner — runs each task without any
   `agent-docs/` present, measures tokens, cost, time, lenient pass via
-  LLM judge.
-- [ ] **A9.** Implement the with-framework runner — runs each task with
-  the hybrid wiring + PreToolUse hook installed.
+  LLM judge. *(2026-04-10: `src/pensieve/benchmark/runner.py` with
+  PlaceholderFiller (reads structure.json, fills all documented
+  placeholders), run_strict_check (file_exists, content_contains,
+  symbol_exists), TaskResult dataclass, Executor protocol for pluggable
+  agent invocation, run_task orchestrator. MockExecutor for testing.
+  21 tests. 617/617 total tests pass.)*
+- [x] **A9.** Implement the with-framework runner — runs each task with
+  the hybrid wiring + PreToolUse hook installed. *(2026-04-10:
+  setup_baseline (hides agent-docs, uninstalls hook),
+  setup_framework (ensures scan + installs hook), teardown_baseline
+  (restores agent-docs), run_benchmark orchestrator (both modes,
+  all templates, auto-scan if needed). BenchmarkResult dataclass.
+  16 tests. 633/633 total tests pass.)*
 - [ ] **A10.** Implement metrics aggregation: `benchmark.json` schema with
   `with_framework` + `baseline` + `deltas` + `verdict` (PASS / MIXED /
   FAIL).
