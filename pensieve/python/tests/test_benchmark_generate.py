@@ -23,6 +23,7 @@ from pensieve.benchmark.generate import (
     RepoContext,
     TaskInstance,
     apply_setup_actions,
+    audit_tasks,
     build_repo_context,
     generate_tasks,
     save_generated_tasks,
@@ -470,3 +471,53 @@ class TestSerialization:
             j = tasks[0].to_json()
             d = json.loads(j)
             assert d["template_family"] == tasks[0].template_family
+
+
+# ---------------------------------------------------------------------------
+# Audit
+# ---------------------------------------------------------------------------
+
+
+class TestAudit:
+
+    def test_audit_contains_all_tasks(self, tmp_path):
+        ctx = _make_realistic_context(tmp_path)
+        tasks = generate_tasks(ctx)
+        report = audit_tasks(tasks)
+        for t in tasks:
+            assert t.instance_id in report
+
+    def test_audit_shows_difficulty(self, tmp_path):
+        ctx = _make_realistic_context(tmp_path)
+        tasks = generate_tasks(ctx)
+        report = audit_tasks(tasks)
+        assert "EASY" in report
+        assert "MEDIUM" in report or "HARD" in report
+
+    def test_audit_shows_why_selected(self, tmp_path):
+        ctx = _make_realistic_context(tmp_path)
+        tasks = generate_tasks(ctx)
+        report = audit_tasks(tasks)
+        assert "Why selected:" in report
+
+    def test_audit_shows_expected_artifact(self, tmp_path):
+        ctx = _make_realistic_context(tmp_path)
+        tasks = generate_tasks(ctx)
+        report = audit_tasks(tasks)
+        assert "Expected artifact:" in report
+
+    def test_audit_shows_benchmarkable(self, tmp_path):
+        ctx = _make_realistic_context(tmp_path)
+        tasks = generate_tasks(ctx)
+        report = audit_tasks(tasks)
+        assert "Benchmarkable:" in report
+        assert "deterministic strict check" in report
+
+    def test_audit_shows_setup_for_bug_fix(self, tmp_path):
+        ctx = _make_realistic_context(tmp_path)
+        tasks = generate_tasks(ctx, max_easy=0, max_medium=2, max_hard=0)
+        bug_tasks = [t for t in tasks if t.template_family == "bug_fix"]
+        if bug_tasks:
+            report = audit_tasks(bug_tasks)
+            assert "mutate_function" in report
+            assert "real code mutation" in report

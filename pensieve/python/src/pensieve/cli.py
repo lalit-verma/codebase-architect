@@ -278,7 +278,7 @@ def _cmd_benchmark_generate(args) -> int:
     """Generate benchmark tasks from repo context."""
     from pathlib import Path
     from pensieve.benchmark.generate import (
-        build_repo_context, generate_tasks, save_generated_tasks,
+        audit_tasks, build_repo_context, generate_tasks, save_generated_tasks,
     )
 
     repo_root = Path(args.repo).resolve()
@@ -317,10 +317,8 @@ def _cmd_benchmark_generate(args) -> int:
     output_path = Path(args.output) if args.output else repo_root / "agent-docs" / "generated-tasks.json"
     save_generated_tasks(tasks, output_path)
 
-    print(f"Generated {len(tasks)} tasks:", flush=True)
-    for t in tasks:
-        setup_str = f" [setup: {len(t.setup_actions)} actions]" if t.setup_actions else ""
-        print(f"  [{t.difficulty}] {t.template_family} ({t.instance_id}){setup_str}", flush=True)
+    # Print audit report
+    print(audit_tasks(tasks), flush=True)
     print(f"  -> {output_path}", flush=True)
     return 0
 

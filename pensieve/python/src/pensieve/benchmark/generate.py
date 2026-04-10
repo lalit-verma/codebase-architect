@@ -1186,3 +1186,92 @@ def save_generated_tasks(
         encoding="utf-8",
     )
     return output_path
+
+
+def audit_tasks(tasks: list[TaskInstance]) -> str:
+    """Produce a human-readable audit report for generated tasks.
+
+    For each task, shows:
+      - Why it was selected (source_context)
+      - Target files involved
+      - Difficulty and family
+      - Expected artifacts (what the strict checker verifies)
+      - Setup actions (mutations applied before execution)
+      - Why it is benchmarkable (bounded, has verifiable outcome)
+    """
+    lines: list[str] = []
+    by_diff = {"easy": 0, "medium": 0, "hard": 0}
+    for t in tasks:
+        by_diff[t.difficulty] = by_diff.get(t.difficulty, 0) + 1
+
+    lines.append(f"# Task Audit Report ({len(tasks)} tasks)")
+    lines.append(f"  easy: {by_diff['easy']}  medium: {by_diff['medium']}  hard: {by_diff['hard']}")
+    lines.append("")
+
+    for i, t in enumerate(tasks, 1):
+        lines.append(f"## {i}. [{t.difficulty.upper()}] {t.template_family} ({t.instance_id})")
+        lines.append("")
+
+        # Why selected
+        lines.append(f"  Why selected: {t.source_context}")
+
+        # Target files
+        targets = []
+        if t.strict_checker.target_file:
+            targets.append(t.strict_checker.target_file)
+        for act in t.setup_actions:
+            if act.get("path"):
+                targets.append(act["path"])
+        if targets:
+            lines.append(f"  Target files: {', '.join(set(targets))}")
+
+        # Expected artifacts
+        sc = t.strict_checker
+        if sc.checker_type == "file_exists":
+            lines.append(f"  Expected artifact: file created at '{sc.target_file}'")
+        elif sc.checker_type == "content_contains":
+            what = f"'{sc.target_string}'"
+            where = f" in '{sc.target_file}'" if sc.target_file else " in agent response"
+            lines.append(f"  Expected artifact: {what} appears{where}")
+        elif sc.checker_type == "symbol_exists":
+            lines.append(f"  Expected artifact: symbol '{sc.target_symbol}' in '{sc.target_file}'")
+        else:
+            lines.append(f"  Expected artifact: {sc.checker_type} check")
+
+        # Setup actions
+        if t.setup_actions:
+            for act in t.setup_actions:
+                act_type = act.get("action", "?")
+                path = act.get("path", "?")
+                if act_type == "mutate_function":
+                    func = act.get("function_name", "?")
+                    mutation = act.get("mutation", "?")
+                    lines.append(
+                        f"  Setup: {act_type} — {mutation} on "
+                        f"{func} in {path} "
+                        f"(lines {act.get('line_start', '?')}-{act.get('line_end', '?')})"
+                    )
+                else:
+                    lines.append(f"  Setup: {act_type} on {path}")
+        else:
+            lines.append(f"  Setup: none")
+
+        # Why benchmarkable
+        reasons = []
+        if t.strict_checker.checker_type in ("file_exists", "content_contains", "symbol_exists"):
+            reasons.append("deterministic strict check")
+        if t.lenient_checker.checker_type == "llm_judge":
+            reasons.append("LLM judge with criteria")
+        if t.setup_actions:
+            reasons.append("real code mutation applied")
+        if len(t.instruction) < 500:
+            reasons.append("bounded instruction (<500 chars)")
+        else:
+            reasons.append(f"instruction length: {len(t.instruction)} chars")
+        if "{" not in t.instruction:
+            reasons.append("no unresolved placeholders")
+        lines.append(f"  Benchmarkable: {'; '.join(reasons)}")
+
+        lines.append("")
+
+    return "\n".join(lines)
