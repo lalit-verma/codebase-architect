@@ -788,6 +788,92 @@ foundation that multi-repo cross-edge detection needs in Phase C.
 
 ---
 
+## Phase Bx — Adaptive Wiring Lite
+
+**Goal.** Make the wiring layer meaningfully more useful without
+turning it into a large new architecture effort. The focus is simple:
+route agents to the right doc earlier, reduce low-signal search thrash,
+and measure whether the hook actually helped.
+
+**Why now.** Phase B gives us better generated context, but static
+wiring still leaves too much value on the table. Before moving to
+multi-repo, we should tighten the single-repo retrieval loop using the
+smallest set of prehook strategies likely to create real lift.
+
+**Pareto principle.** This phase deliberately excludes clever-but-costly
+hook ideas. We only implement the highest-leverage pieces:
+1. path-aware routing
+2. recipe-first hints
+3. anti-thrash intervention
+4. telemetry for docs-consulted vs not-consulted
+
+### Milestones
+
+- [ ] **Bx1.** Build a lightweight route index from generated context.
+  Compile a small machine-readable map from:
+  - directory/file keywords → subsystem docs
+  - common task patterns (`add handler`, `add test`, `add model`,
+    `fix bug`, `trace ownership`) → pattern docs / exemplar files
+  Output: `agent-docs/route-index.json`.
+
+- [ ] **Bx2.** Add path-aware prehook routing.
+  When the agent is about to use broad search (`Glob`, `Grep`) and the
+  query/path clearly maps to a subsystem, surface one short hint that
+  points to the most relevant subsystem doc or path anchor. Keep it
+  concise and non-spammy.
+
+- [ ] **Bx3.** Add recipe-first hints.
+  When the query looks like a common modification task, prefer surfacing
+  the most actionable recipe/pattern/example over general architecture
+  prose. The hook should bias toward “how to add/change X” guidance.
+
+- [ ] **Bx4.** Add anti-thrash intervention.
+  Detect repeated broad, low-signal search before a relevant file or doc
+  is opened. Intervene once with a direct rerouting hint. Do not repeat
+  the same hint aggressively.
+
+- [ ] **Bx5.** Add hook telemetry.
+  Log:
+  - hint shown
+  - hint type
+  - doc/path pointed to
+  - whether that doc was later consulted
+  - rough search-thrash count before first useful read
+  Output: append-only telemetry file for benchmark analysis.
+
+- [ ] **Bx6.** Benchmark the adaptive hook layer.
+  Compare:
+  - docs only
+  - docs + adaptive hook
+  Metrics:
+  - docs-consulted rate
+  - search-thrash reduction
+  - strict / lenient pass
+  - quality
+  - cost / tokens / time
+
+### Proceed criterion (Phase Bx → Phase C)
+
+1. Docs-consulted rate improves materially vs docs-only baseline.
+2. Broad-search thrash decreases on the frozen benchmark task set.
+3. Hook hints do not meaningfully regress pass, quality, cost, or time.
+4. The adaptive hook stays simple: no LLM-in-the-hook, no large context
+   injection by default, no repeated hint spam.
+
+### Phase Bx status: not started
+
+### Phase Bx notes
+
+- Keep the hook layer simple and measurable.
+- Do not inject large docs by default; route first, load later.
+- If only two things get built, prioritize:
+  1. path-aware routing
+  2. telemetry
+- This phase is intentionally the 80/20 version of “smart wiring,” not
+  a full autonomous retrieval engine.
+
+---
+
 ## Phase C — Multi-repo support
 
 **Goal.** Make Code Pensieve serve the multi-microservice scenario, which
