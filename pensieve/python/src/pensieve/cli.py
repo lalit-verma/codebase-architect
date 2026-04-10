@@ -298,20 +298,16 @@ def _cmd_benchmark(args) -> int:
     output_dir = Path(args.output_dir) if args.output_dir else repo_root / "agent-docs"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # We need a real executor for actual benchmark runs.
-    # For now, print a clear message if no executor is available.
-    # A real executor (calling Claude Code subprocess) will be
-    # plugged in when we run on the calibration repo (A13).
+    # Load the Claude Code subprocess executor.
     try:
         from pensieve.benchmark.executor import create_executor
         executor = create_executor()
     except ImportError:
-        # No real executor yet — provide a stub that explains
         print(
             "pensieve benchmark run: no executor available.\n"
-            "  The benchmark runner requires an executor to invoke the\n"
-            "  coding agent. A real executor (Claude Code subprocess)\n"
-            "  will be implemented in A13.\n"
+            "  The benchmark runner requires the executor module\n"
+            "  (pensieve.benchmark.executor) which invokes Claude Code\n"
+            "  as a subprocess.\n"
             "\n"
             "  For testing, use the Python API directly with a mock\n"
             "  executor:\n"

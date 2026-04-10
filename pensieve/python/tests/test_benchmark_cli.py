@@ -177,14 +177,16 @@ class TestBenchmarkArgValidation:
 class TestNoExecutor:
 
     def test_missing_executor_module_gives_clear_error(self, capsys, tmp_path):
-        """When pensieve.benchmark.executor doesn't exist, the CLI
+        """When pensieve.benchmark.executor can't be imported, the CLI
         should print a helpful message, not a traceback."""
         repo = _make_repo_with_structure(tmp_path)
-        result = main(["benchmark", "run", "--repo", str(repo)])
+        # Simulate the module not existing by making import raise ImportError
+        with mock.patch.dict(sys.modules, {"pensieve.benchmark.executor": None}):
+            result = main(["benchmark", "run", "--repo", str(repo)])
         assert result == 1
         captured = capsys.readouterr()
         assert "no executor" in captured.err.lower()
-        assert "a13" in captured.err.lower()  # mentions where it'll be built
+        assert "executor module" in captured.err.lower()
 
 
 # ---------------------------------------------------------------------------
