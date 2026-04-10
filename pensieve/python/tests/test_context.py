@@ -21,13 +21,16 @@ from unittest import mock
 
 from pensieve.context import (
     DirectoryProfile,
+    FileSelection,
     RepoProfile,
     SubsystemMap,
     SubsystemProposal,
+    build_subsystem_brief,
     profile_directories,
     format_profiles_for_llm,
     propose_subsystems,
     format_subsystem_map,
+    select_files_for_subsystem,
 )
 
 
@@ -580,3 +583,176 @@ class TestSubsystemDataclasses:
     def test_map_error_default(self):
         m = SubsystemMap(subsystems=[], excluded=[])
         assert m.error is None
+
+
+# ---------------------------------------------------------------------------
+# B14c: Subsystem brief + file selection
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSubsystemBrief:
+
+    def test_brief_contains_file_names(self, tmp_path):
+        sp = _write_structure(tmp_path, [
+            _file("src/a.py", symbols=[_sym("foo")]),
+            _file("src/b.py", symbols=[_sym("bar")]),
+        ])
+        subsystem = SubsystemProposal(
+            name="Core", directories=["src"], role="core", rationale="test",
+        )
+        brief = build_subsystem_brief(subsystem, sp)
+        assert "src/a.py" in brief
+        assert "src/b.py" in brief
+
+    def test_brief_contains_symbols(self, tmp_path):
+        sp = _write_structure(tmp_path, [
+            _file("src/a.py", symbols=[_sym("my_function")]),
+        ])
+        subsystem = SubsystemProposal(
+            name="Core", directories=["src"], role="core", rationale="test",
+        )
+        brief = build_subsystem_brief(subsystem, sp)
+        assert "my_function" in brief
+
+    def test_brief_empty_directories(self, tmp_path):
+        sp = _write_structure(tmp_path, [
+            _file("other/a.py"),
+        ])
+        subsystem = SubsystemProposal(
+            name="Core", directories=["src"], role="core", rationale="test",
+        )
+        brief = build_subsystem_brief(subsystem, sp)
+        assert "No files found" in brief
+
+    def test_brief_matches_subdirectories(self, tmp_path):
+        """Files in subdirectories of a listed directory should be included."""
+        sp = _write_structure(tmp_path, [
+            _file("retrieval/web/google.py", symbols=[_sym("search_google")]),
+            _file("retrieval/web/bing.py", symbols=[_sym("search_bing")]),
+            _file("retrieval/vector/chroma.py", symbols=[_sym("ChromaDB")]),
+        ])
+        subsystem = SubsystemProposal(
+            name="Retrieval",
+            directories=["retrieval/web", "retrieval/vector"],
+            role="RAG", rationale="test",
+        )
+        brief = build_subsystem_brief(subsystem, sp)
+        assert "search_google" in brief
+        assert "ChromaDB" in brief
+
+    def test_brief_includes_subsystem_name_and_role(self, tmp_path):
+        sp = _write_structure(tmp_path, [
+            _file("src/a.py"),
+        ])
+        subsystem = SubsystemProposal(
+            name="API Layer", directories=["src"],
+            role="HTTP request handling", rationale="test",
+        )
+        brief = build_subsystem_brief(subsystem, sp)
+        assert "API Layer" in brief
+        assert "HTTP request handling" in brief
+
+
+class TestSelectFilesForSubsystem:
+
+    def _make_llm_file_response(self, files=None):
+        if files is None:
+            files = [
+                {"file_path": "src/main.py", "reason": "Entry point"},
+                {"file_path": "src/config.py", "reason": "Configuration hub"},
+            ]
+        return json.dumps({
+            "type": "result",
+            "is_error": False,
+            "result": "",
+            "structured_output": {"files": files},
+        })
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_successful_selection(self, mock_run, tmp_path):
+        sp = _write_structure(tmp_path, [
+            _file("src/main.py", symbols=[_sym("main")]),
+            _file("src/config.py", symbols=[_sym("Config")]),
+        ])
+        mock_run.return_value = mock.MagicMock(
+            stdout=self._make_llm_file_response(),
+            stderr="", returncode=0,
+        )
+        subsystem = SubsystemProposal(
+            name="Core", directories=["src"], role="core", rationale="test",
+        )
+        result = select_files_for_subsystem(subsystem, sp)
+
+        assert result.error is None
+        assert len(result.files) == 2
+        assert result.files[0]["file_path"] == "src/main.py"
+        assert result.files[1]["reason"] == "Configuration hub"
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_timeout_returns_error(self, mock_run, tmp_path):
+        import subprocess as sp_mod
+        sp = _write_structure(tmp_path, [_file("src/a.py")])
+        mock_run.side_effect = sp_mod.TimeoutExpired(cmd=["claude"], timeout=120)
+
+        subsystem = SubsystemProposal(
+            name="Core", directories=["src"], role="core", rationale="test",
+        )
+        result = select_files_for_subsystem(subsystem, sp)
+
+        assert result.error is not None
+        assert "timed out" in result.error.lower()
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_nonzero_returncode(self, mock_run, tmp_path):
+        sp = _write_structure(tmp_path, [_file("src/a.py")])
+        mock_run.return_value = mock.MagicMock(
+            stdout=self._make_llm_file_response(),
+            stderr="auth error", returncode=1,
+        )
+        subsystem = SubsystemProposal(
+            name="Core", directories=["src"], role="core", rationale="test",
+        )
+        result = select_files_for_subsystem(subsystem, sp)
+
+        assert result.error is not None
+        assert "exited with code 1" in result.error
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_malformed_entry_skipped(self, mock_run, tmp_path):
+        sp = _write_structure(tmp_path, [_file("src/a.py")])
+        resp = json.dumps({
+            "type": "result",
+            "is_error": False,
+            "result": "",
+            "structured_output": {
+                "files": [
+                    {"file_path": "src/good.py", "reason": "good"},
+                    None,
+                    {"file_path": "src/also_good.py", "reason": "also good"},
+                ],
+            },
+        })
+        mock_run.return_value = mock.MagicMock(
+            stdout=resp, stderr="", returncode=0,
+        )
+        subsystem = SubsystemProposal(
+            name="Core", directories=["src"], role="core", rationale="test",
+        )
+        result = select_files_for_subsystem(subsystem, sp)
+
+        assert result.error is None
+        assert len(result.files) == 2
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_uses_json_schema(self, mock_run, tmp_path):
+        sp = _write_structure(tmp_path, [_file("src/a.py")])
+        mock_run.return_value = mock.MagicMock(
+            stdout=self._make_llm_file_response(),
+            stderr="", returncode=0,
+        )
+        subsystem = SubsystemProposal(
+            name="Core", directories=["src"], role="core", rationale="test",
+        )
+        select_files_for_subsystem(subsystem, sp)
+        cmd = mock_run.call_args[0][0]
+        assert "--json-schema" in cmd

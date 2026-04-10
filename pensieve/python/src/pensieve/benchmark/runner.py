@@ -515,6 +515,248 @@ def teardown_framework(repo_root: Path, state: dict[str, str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# TaskInstance runner (A13 rework)
+# ---------------------------------------------------------------------------
+
+
+def run_task_instance(
+    instance: "TaskInstance",
+    repo_root: Path,
+    executor: Executor,
+    mode: Literal["baseline", "with_framework"],
+    run_judge: bool = False,
+    judge_model: str = "sonnet",
+) -> TaskResult:
+    """Run a single TaskInstance (concrete, no placeholders).
+
+    Applies setup_actions before execution. The instruction is already
+    concrete — no placeholder filling needed.
+    """
+    from pensieve.benchmark.generate import TaskInstance, apply_setup_actions
+
+    # Apply setup actions
+    if instance.setup_actions:
+        errors = apply_setup_actions(instance.setup_actions, repo_root)
+        if errors:
+            return TaskResult(
+                template_name=instance.template_family,
+                mode=mode,
+                instruction=instance.instruction,
+                error=f"Setup failed: {'; '.join(errors)}",
+            )
+
+    # Execute
+    start = time.monotonic()
+    try:
+        result = executor.execute(instance.instruction, repo_root, mode)
+    except Exception as e:
+        return TaskResult(
+            template_name=instance.template_family,
+            mode=mode,
+            instruction=instance.instruction,
+            error=f"Executor failed: {e}",
+            time_seconds=round(time.monotonic() - start, 3),
+        )
+
+    elapsed = round(time.monotonic() - start, 3)
+    agent_response = result.get("response", "")
+
+    # Strict check — no placeholder filling needed, checkers are concrete
+    strict_pass = _run_concrete_strict_check(
+        instance.strict_checker,
+        repo_root,
+        agent_response,
+    )
+
+    # LLM judge
+    lenient_pass = False
+    quality_score = 0.0
+    judge_error: str | None = None
+    if (
+        run_judge
+        and instance.lenient_checker.checker_type == "llm_judge"
+        and instance.lenient_checker.llm_prompt
+        and agent_response
+    ):
+        try:
+            from pensieve.benchmark.judge import judge_task
+
+            judge_result = judge_task(
+                llm_prompt=instance.lenient_checker.llm_prompt,
+                agent_response=agent_response,
+                model=judge_model,
+            )
+            lenient_pass = judge_result.lenient_pass
+            quality_score = judge_result.quality_score
+            if judge_result.error:
+                judge_error = f"Judge: {judge_result.error}"
+        except Exception as exc:
+            judge_error = f"Judge crashed: {exc}"
+
+    exec_error = result.get("error")
+    if exec_error and judge_error:
+        combined_error = f"{exec_error}; {judge_error}"
+    else:
+        combined_error = exec_error or judge_error
+
+    return TaskResult(
+        template_name=instance.template_family,
+        mode=mode,
+        instruction=instance.instruction,
+        agent_response=agent_response,
+        tokens_used=result.get("tokens", 0),
+        cost_usd=result.get("cost_usd", 0.0),
+        time_seconds=result.get("time_seconds", elapsed),
+        strict_pass=strict_pass,
+        lenient_pass=lenient_pass,
+        quality_score=quality_score,
+        error=combined_error,
+    )
+
+
+def _run_concrete_strict_check(
+    checker: CheckerSpec,
+    repo_root: Path,
+    agent_response: str,
+) -> bool:
+    """Run a strict check on a concrete (no-placeholder) checker."""
+    ct = checker.checker_type
+
+    if ct == "file_exists":
+        target = checker.target_file or ""
+        return (repo_root / target).exists() if target else False
+
+    elif ct == "content_contains":
+        target = checker.target_string or ""
+        if not target:
+            return False
+        if target in agent_response:
+            return True
+        target_file = checker.target_file
+        if target_file:
+            file_path = repo_root / target_file
+            if file_path.exists():
+                return target in file_path.read_text(encoding="utf-8", errors="replace")
+        return False
+
+    elif ct == "symbol_exists":
+        target_file = checker.target_file or ""
+        target_sym = checker.target_symbol or ""
+        if not target_file or not target_sym:
+            return False
+        file_path = repo_root / target_file
+        if not file_path.exists():
+            return False
+        return target_sym in file_path.read_text(encoding="utf-8", errors="replace")
+
+    elif ct in ("pattern_followed", "llm_judge"):
+        return True  # deferred to lenient checker
+
+    return False
+
+
+def run_generated_benchmark(
+    repo_root: Path,
+    instances: list,  # list[TaskInstance]
+    executor: Executor,
+    run_baseline: bool = True,
+    run_framework: bool = True,
+    on_progress: ProgressCallback | None = None,
+    run_judge: bool = False,
+    judge_model: str = "sonnet",
+) -> BenchmarkResult:
+    """Run the benchmark using generated TaskInstances.
+
+    Same isolation model as run_benchmark: each mode runs on a fresh
+    copy. Setup_actions are applied per-task inside the copy.
+
+    Args:
+        repo_root: Path to the target repo.
+        instances: Generated TaskInstance list.
+        executor: Agent executor.
+        run_baseline/run_framework: Which modes to run.
+        on_progress: Progress callback.
+        run_judge: Whether to run LLM judge.
+        judge_model: Model for judging.
+
+    Returns:
+        BenchmarkResult with per-task results for each mode.
+    """
+    import shutil
+    import tempfile
+
+    start = time.monotonic()
+    repo_root = repo_root.resolve()
+
+    baseline_results: list[TaskResult] = []
+    framework_results: list[TaskResult] = []
+    total = len(instances)
+
+    def _notify(mode, name, idx, result=None):
+        if on_progress:
+            on_progress(mode, name, idx, total, result)
+
+    # --- With-framework on a FRESH COPY ---
+    if run_framework:
+        fw_dir = Path(tempfile.mkdtemp(prefix="pensieve_bench_fw_"))
+        fw_copy = fw_dir / "repo"
+        try:
+            shutil.copytree(repo_root, fw_copy)
+            setup_framework(fw_copy)
+            for i, inst in enumerate(instances):
+                _notify("with_framework", inst.template_family, i + 1)
+                # Each task gets a fresh copy of the repo within the mode copy
+                # to prevent cross-task contamination from setup_actions
+                task_dir = Path(tempfile.mkdtemp(prefix="pensieve_task_"))
+                task_copy = task_dir / "repo"
+                try:
+                    shutil.copytree(fw_copy, task_copy)
+                    result = run_task_instance(
+                        inst, task_copy, executor, "with_framework",
+                        run_judge=run_judge, judge_model=judge_model,
+                    )
+                    framework_results.append(result)
+                    _notify("with_framework", inst.template_family, i + 1, result)
+                finally:
+                    shutil.rmtree(task_dir, ignore_errors=True)
+        finally:
+            shutil.rmtree(fw_dir, ignore_errors=True)
+
+    # --- Baseline on a SEPARATE FRESH COPY ---
+    if run_baseline:
+        bl_dir = Path(tempfile.mkdtemp(prefix="pensieve_bench_bl_"))
+        bl_copy = bl_dir / "repo"
+        try:
+            shutil.copytree(repo_root, bl_copy)
+            setup_baseline(bl_copy)
+            for i, inst in enumerate(instances):
+                _notify("baseline", inst.template_family, i + 1)
+                task_dir = Path(tempfile.mkdtemp(prefix="pensieve_task_"))
+                task_copy = task_dir / "repo"
+                try:
+                    shutil.copytree(bl_copy, task_copy)
+                    result = run_task_instance(
+                        inst, task_copy, executor, "baseline",
+                        run_judge=run_judge, judge_model=judge_model,
+                    )
+                    baseline_results.append(result)
+                    _notify("baseline", inst.template_family, i + 1, result)
+                finally:
+                    shutil.rmtree(task_dir, ignore_errors=True)
+        finally:
+            shutil.rmtree(bl_dir, ignore_errors=True)
+
+    elapsed = round(time.monotonic() - start, 3)
+
+    return BenchmarkResult(
+        repo_root=repo_root,
+        baseline_results=baseline_results,
+        framework_results=framework_results,
+        total_time_seconds=elapsed,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Full benchmark orchestrator (milestone A9)
 # ---------------------------------------------------------------------------
 

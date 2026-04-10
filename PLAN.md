@@ -286,19 +286,37 @@ infrastructure we need for every subsequent phase.
   Calibration repo: socrates/socrates (335 files, Python/TS/JS).
   pensieve scan completed (332 extracted, 0 failures). v1 agent-docs
   preserved alongside new structure.json + graph.json.
-  Full 5-template run completed in 1594s (~27min), $3.39 total.
-  Verdict: MIXED. FW cheaper (-45.5% cost, -18% tokens) but worse
-  quality (-1.6, -20pp lenient) and much slower (+125% time).
-  Issues found:
-  - FW bug_fix_localized took 3058s, find_owner took 1981s —
-    framework setup may be causing excessive agent tool use
-  - FW cold_navigation timed out entirely (300s, $0)
-  - Quality scores mostly 1.0 — judge may be too harsh or tasks
-    produced genuinely poor output
-  - Baseline cold_navigation got 9.0 quality + lenient PASS
-  - Only baseline outperforms on quality (2.6 vs 1.0)
-  These results contradict teammate's external benchmark (+6.6pp
-  lenient). Discrepancies to investigate in A14.)*
+  Previous run (5 static templates, INVALID): benchmark design was
+  structurally broken — PlaceholderFiller picked migrations dir +
+  root-level utility script, setup_actions not applied, bug_fix had
+  fictional bug. Results were measurement artifacts, not real data.
+
+  A13 REWORK (2026-04-10): Complete benchmark system redesign.
+  New architecture: RepoContext (deterministic from structure.json +
+  graph.json) → TaskGenerator → TaskInstance (concrete, no placeholders).
+  `src/pensieve/benchmark/generate.py` with:
+  - RepoContext: classifies files (source/test/central/untested),
+    detects pattern directories, maps test→source
+  - TaskGenerator: produces TaskInstance per family (add_sibling,
+    add_test, bug_fix, find_owner) with real repo targets
+  - TaskInstance: concrete instruction, resolved checkers, real
+    setup_actions. Serializable to generated-tasks.json
+  - apply_setup_actions: write_file, delete_file, modify_file,
+    mutate_function (real code mutations — swap operator, remove
+    return, off-by-one)
+  - Difficulty stratification: easy (add_sibling, add_test),
+    medium (bug_fix), hard (find_owner)
+  - Limits: max_easy/max_medium/max_hard, seed for reproducibility
+  Runner updated: run_task_instance + run_generated_benchmark with
+  per-task isolation (each task gets a fresh copy to prevent
+  setup_action contamination across tasks).
+  Validated on socrates repo: 6 concrete tasks generated — targets
+  real pattern dirs (utils/, routers/, retrieval/), real functions
+  (_delete_file, get_digest_items), central files (models/tools.py).
+  No migrations, no fictional bugs, no root-level scripts.
+  28 generation tests + 812/812 total pass.
+  STATUS: not yet re-run on calibration repo. Infrastructure is
+  ready. Full run needed to produce valid A13 numbers.)*
 - [ ] **A14.** Compare auto-benchmark results to the teammate's most
   recent external benchmark. Discrepancies are bugs in our measurement,
   not in the framework — fix them before continuing.
@@ -560,7 +578,16 @@ foundation that multi-repo cross-edge detection needs in Phase C.
   feeds profiles to LLM via --json-schema, returns SubsystemMap with
   named subsystems, directory assignments, roles, rationale. Defensive
   error handling on all paths. `format_subsystem_map()` for human
-  checkpoint. 29 tests. 774/774 total pass.)* Full pipeline:
+  checkpoint. 29 tests. B14c complete: `build_subsystem_brief()` builds
+  per-subsystem structural brief from structure.json (file list with
+  signatures, imports, call edges, rationale comments). 
+  `select_files_for_subsystem()` feeds brief to LLM via --json-schema,
+  LLM picks files to read in full with reasons. No budget constraint.
+  Validated on socrates repo — Data Models subsystem (25 files, 910-line
+  brief), LLM selected 14 files with architecturally specific reasons
+  (db.py as foundation, users.py as central entity, chats.py as pattern
+  exemplar, oauth_sessions.py for encryption pattern). 39 tests.
+  784/784 total pass.)* Full pipeline:
   1. **Subsystem detection (deterministic):** Directory-based clustering
      validated by graph edges (split disconnected dirs, merge tightly-
      coupled ones). Produces candidate subsystem list with structural

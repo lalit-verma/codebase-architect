@@ -1,13 +1,12 @@
-"""Tests for the benchmark CLI subcommand (milestone A12).
+"""Tests for the benchmark CLI subcommand (A13 rework).
 
 Covers:
-  - Parser wiring: `benchmark run` recognized, flags parsed
-  - No action: `benchmark` alone prints error
-  - Unknown template name rejected with available list
-  - Nonexistent repo directory rejected
-  - Mode flags: neither → both, --baseline → only baseline, --with-framework → only framework
-  - No executor: clear error message when executor module missing
-  - Full integration with mock executor: benchmark.json + benchmark-history.md written
+  - Parser wiring: benchmark generate/run recognized, flags parsed
+  - benchmark generate: produces generated-tasks.json
+  - benchmark run: generates then runs by default, or loads from file
+  - --dev mode limits tasks
+  - --judge flag
+  - Error handling: nonexistent repo, no structure.json
 """
 
 from __future__ import annotations
@@ -42,41 +41,67 @@ def _mock_judge(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def _make_repo_with_structure(tmp_path, files_data=None):
-    """Create a fake repo with structure.json for benchmark tests."""
+def _make_repo_with_context(tmp_path):
+    """Create a repo with structure.json + graph.json for benchmark tests."""
     repo = tmp_path / "repo"
     repo.mkdir()
     agent_docs = repo / "agent-docs"
     agent_docs.mkdir()
 
-    if files_data is None:
-        files_data = [
-            {
-                "file_path": "src/main.py",
-                "language": "python",
-                "sha256": "abc123",
-                "file_size_bytes": 100,
-                "line_count": 10,
-                "symbols": [
-                    {
-                        "name": "main",
-                        "kind": "function",
-                        "line_start": 1,
-                        "line_end": 5,
-                        "signature": "def main():",
-                        "visibility": "public",
-                        "parent": None,
-                        "docstring": None,
-                        "parameters": [],
-                        "return_type": None,
-                    },
-                ],
-                "imports": [],
-                "exports": [],
-                "call_edges": [],
-                "comments": [],
-            },
-        ]
+    # Create source files for pattern detection and task generation
+    src = repo / "src" / "handlers"
+    src.mkdir(parents=True)
+    for name in ("users.py", "posts.py", "comments.py"):
+        (src / name).write_text(
+            f"def get_{name.replace('.py', '')}():\n"
+            f"    x = 1\n"
+            f"    if x <= 10:\n"
+            f"        return True\n"
+            f"    return False\n"
+            f"\n"
+            f"def create_{name.replace('.py', '')}():\n"
+            f"    pass\n"
+        )
+
+    utils = repo / "src" / "utils"
+    utils.mkdir(parents=True)
+    (utils / "auth.py").write_text("def verify():\n    pass\n")
+    (utils / "helpers.py").write_text("def paginate():\n    pass\n")
+
+    files_data = [
+        {
+            "file_path": f"src/handlers/{name}",
+            "language": "python",
+            "symbols": [
+                {"name": f"get_{name.replace('.py', '')}", "kind": "function",
+                 "line_start": 1, "line_end": 5,
+                 "signature": f"def get_{name.replace('.py', '')}():",
+                 "visibility": "public", "parent": None,
+                 "docstring": None, "parameters": [], "return_type": None},
+                {"name": f"create_{name.replace('.py', '')}", "kind": "function",
+                 "line_start": 7, "line_end": 8,
+                 "signature": f"def create_{name.replace('.py', '')}():",
+                 "visibility": "public", "parent": None,
+                 "docstring": None, "parameters": [], "return_type": None},
+            ],
+            "imports": [], "exports": [], "call_edges": [], "comments": [],
+        }
+        for name in ("users.py", "posts.py", "comments.py")
+    ] + [
+        {
+            "file_path": f"src/utils/{name}",
+            "language": "python",
+            "symbols": [
+                {"name": name.replace(".py", ""), "kind": "function",
+                 "line_start": 1, "line_end": 2,
+                 "signature": f"def {name.replace('.py', '')}():",
+                 "visibility": "public", "parent": None,
+                 "docstring": None, "parameters": [], "return_type": None},
+            ],
+            "imports": [], "exports": [], "call_edges": [], "comments": [],
+        }
+        for name in ("auth.py", "helpers.py")
+    ]
 
     structure = {
         "repo_root": str(repo),
@@ -84,33 +109,29 @@ def _make_repo_with_structure(tmp_path, files_data=None):
         "errors": [],
         "extractor_version": "test",
     }
-    (agent_docs / "structure.json").write_text(
-        json.dumps(structure), encoding="utf-8",
-    )
+    (agent_docs / "structure.json").write_text(json.dumps(structure))
 
-    # Create the source file so file_exists checks can pass
-    src = repo / "src"
-    src.mkdir()
-    (src / "main.py").write_text("def main(): pass\n")
+    edges = [
+        {"source": "src/handlers/users.py", "target": "src/utils/auth.py",
+         "kind": "imports", "detail": "", "line": 1, "confidence": 1.0},
+        {"source": "src/handlers/posts.py", "target": "src/utils/auth.py",
+         "kind": "imports", "detail": "", "line": 1, "confidence": 1.0},
+        {"source": "src/handlers/comments.py", "target": "src/utils/auth.py",
+         "kind": "imports", "detail": "", "line": 1, "confidence": 1.0},
+    ]
+    graph = {"nodes": [], "edges": edges, "external_imports": []}
+    (agent_docs / "graph.json").write_text(json.dumps(graph))
 
     return repo
 
 
 class _MockExecutor:
-    """Mock executor that returns canned responses."""
-
-    def __init__(self, response="done", tokens=500, cost=0.05, time_s=1.0):
-        self._response = response
-        self._tokens = tokens
-        self._cost = cost
-        self._time = time_s
-
     def execute(self, instruction, repo_root, mode):
         return {
-            "response": self._response,
-            "tokens": self._tokens,
-            "cost_usd": self._cost,
-            "time_seconds": self._time,
+            "response": "done",
+            "tokens": 500,
+            "cost_usd": 0.05,
+            "time_seconds": 1.0,
         }
 
 
@@ -122,267 +143,123 @@ class _MockExecutor:
 class TestBenchmarkParser:
 
     def test_benchmark_no_action_exits_nonzero(self, capsys):
-        """'pensieve benchmark' with no action prints error."""
         result = main(["benchmark"])
         assert result == 1
         captured = capsys.readouterr()
         assert "specify" in captured.err.lower()
 
+    def test_benchmark_generate_help(self, capsys):
+        with pytest.raises(SystemExit) as exc_info:
+            main(["benchmark", "generate", "--help"])
+        assert exc_info.value.code == 0
+
     def test_benchmark_run_help(self, capsys):
-        """'pensieve benchmark run --help' exits 0."""
         with pytest.raises(SystemExit) as exc_info:
             main(["benchmark", "run", "--help"])
         assert exc_info.value.code == 0
 
-    def test_benchmark_listed_in_top_help(self, capsys):
-        """'pensieve --help' mentions the benchmark command."""
-        with pytest.raises(SystemExit):
-            main(["--help"])
+
+# ---------------------------------------------------------------------------
+# benchmark generate
+# ---------------------------------------------------------------------------
+
+
+class TestBenchmarkGenerate:
+
+    def test_generates_tasks_file(self, tmp_path):
+        repo = _make_repo_with_context(tmp_path)
+        result = main(["benchmark", "generate", "--repo", str(repo)])
+        assert result == 0
+        tasks_file = repo / "agent-docs" / "generated-tasks.json"
+        assert tasks_file.exists()
+        data = json.loads(tasks_file.read_text())
+        assert data["task_count"] > 0
+        assert "tasks" in data
+
+    def test_custom_output_path(self, tmp_path):
+        repo = _make_repo_with_context(tmp_path)
+        out = tmp_path / "custom" / "tasks.json"
+        result = main([
+            "benchmark", "generate",
+            "--repo", str(repo),
+            "--output", str(out),
+        ])
+        assert result == 0
+        assert out.exists()
+
+    def test_max_limits(self, tmp_path):
+        repo = _make_repo_with_context(tmp_path)
+        result = main([
+            "benchmark", "generate",
+            "--repo", str(repo),
+            "--max-easy", "1", "--max-medium", "0", "--max-hard", "0",
+        ])
+        assert result == 0
+        tasks_file = repo / "agent-docs" / "generated-tasks.json"
+        data = json.loads(tasks_file.read_text())
+        assert data["task_count"] <= 1
+
+    def test_no_structure_json_fails(self, capsys, tmp_path):
+        repo = tmp_path / "empty_repo"
+        repo.mkdir()
+        result = main(["benchmark", "generate", "--repo", str(repo)])
+        assert result == 1
         captured = capsys.readouterr()
-        assert "benchmark" in captured.out.lower()
-
-
-# ---------------------------------------------------------------------------
-# Argument validation
-# ---------------------------------------------------------------------------
-
-
-class TestBenchmarkArgValidation:
+        assert "structure.json" in captured.err
 
     def test_nonexistent_repo_fails(self, capsys, tmp_path):
-        bad_path = str(tmp_path / "nonexistent")
-        result = main(["benchmark", "run", "--repo", bad_path])
+        bad = str(tmp_path / "nope")
+        result = main(["benchmark", "generate", "--repo", bad])
         assert result == 1
-        captured = capsys.readouterr()
-        assert "not a directory" in captured.err
-
-    def test_unknown_template_name_fails(self, capsys, tmp_path):
-        repo = _make_repo_with_structure(tmp_path)
-        # Patch executor import to not fail before template resolution
-        with mock.patch.dict(sys.modules, {"pensieve.benchmark.executor": None}):
-            result = main([
-                "benchmark", "run",
-                "--repo", str(repo),
-                "--tasks", "nonexistent_template",
-            ])
-        assert result == 1
-        captured = capsys.readouterr()
-        assert "unknown template" in captured.err.lower()
-        # Should list available templates
-        assert "add_handler" in captured.err
-
-    def test_empty_tasks_after_strip_fails(self, capsys, tmp_path):
-        repo = _make_repo_with_structure(tmp_path)
-        with mock.patch.dict(sys.modules, {"pensieve.benchmark.executor": None}):
-            result = main([
-                "benchmark", "run",
-                "--repo", str(repo),
-                "--tasks", " , , ",
-            ])
-        assert result == 1
-        captured = capsys.readouterr()
-        assert "no templates" in captured.err.lower()
+        assert "not a directory" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------
-# No executor
+# benchmark run
 # ---------------------------------------------------------------------------
 
 
-class TestNoExecutor:
+class TestBenchmarkRun:
 
-    def test_missing_executor_module_gives_clear_error(self, capsys, tmp_path):
-        """When pensieve.benchmark.executor can't be imported, the CLI
-        should print a helpful message, not a traceback."""
-        repo = _make_repo_with_structure(tmp_path)
-        # Simulate the module not existing by making import raise ImportError
-        with mock.patch.dict(sys.modules, {"pensieve.benchmark.executor": None}):
-            result = main(["benchmark", "run", "--repo", str(repo)])
-        assert result == 1
-        captured = capsys.readouterr()
-        assert "no executor" in captured.err.lower()
-        assert "executor module" in captured.err.lower()
-
-
-# ---------------------------------------------------------------------------
-# Mode flag logic
-# ---------------------------------------------------------------------------
-
-
-class TestModeFlags:
-
-    def _run_with_mock_executor(self, tmp_path, extra_args=None):
-        """Helper: run benchmark with a mock executor and capture the
-        run_benchmark call to inspect which modes were requested."""
-        repo = _make_repo_with_structure(tmp_path)
-
+    def _run_with_mock(self, tmp_path, extra_args=None):
+        repo = _make_repo_with_context(tmp_path)
         mock_executor = _MockExecutor()
         mock_module = mock.MagicMock()
         mock_module.create_executor = mock.MagicMock(return_value=mock_executor)
-
-        captured_kwargs = {}
-
-        original_run = None
-        from pensieve.benchmark import runner as runner_mod
-        original_run = runner_mod.run_benchmark
-
-        def patched_run(**kwargs):
-            captured_kwargs.update(kwargs)
-            return original_run(**kwargs)
 
         argv = ["benchmark", "run", "--repo", str(repo)]
         if extra_args:
             argv.extend(extra_args)
 
         with mock.patch.dict(sys.modules, {"pensieve.benchmark.executor": mock_module}):
-            with mock.patch("pensieve.benchmark.runner.run_benchmark", side_effect=patched_run):
-                result = main(argv)
+            result = main(argv)
 
-        return result, captured_kwargs
+        return result, repo
 
-    def test_no_flags_runs_both(self, tmp_path):
-        """Neither --baseline nor --with-framework → both modes run."""
-        result, kwargs = self._run_with_mock_executor(tmp_path)
+    def test_run_generates_and_executes(self, tmp_path):
+        result, repo = self._run_with_mock(tmp_path)
         assert result == 0
-        assert kwargs["run_baseline"] is True
-        assert kwargs["run_framework"] is True
+        # Should have generated tasks
+        assert (repo / "agent-docs" / "generated-tasks.json").exists()
+        # Should have run and produced benchmark.json
+        assert (repo / "agent-docs" / "benchmark.json").exists()
+        assert (repo / "agent-docs" / "benchmark-history.md").exists()
 
-    def test_baseline_only_rejected(self, capsys, tmp_path):
-        """--baseline alone is rejected because comparative artifacts
-        (benchmark.json, benchmark-history.md) need both modes."""
-        repo = _make_repo_with_structure(tmp_path)
-        result = main(["benchmark", "run", "--repo", str(repo), "--baseline"])
-        assert result == 1
+    def test_dev_mode_limits_tasks(self, capsys, tmp_path):
+        result, repo = self._run_with_mock(tmp_path, ["--dev"])
+        assert result == 0
         captured = capsys.readouterr()
-        assert "comparison requires both modes" in captured.err.lower()
-        assert "--with-framework" in captured.err
+        # Dev mode: 1 easy task
+        assert "easy=1" in captured.out
 
-    def test_framework_only_rejected(self, capsys, tmp_path):
-        """--with-framework alone is rejected for the same reason."""
-        repo = _make_repo_with_structure(tmp_path)
-        result = main(["benchmark", "run", "--repo", str(repo), "--with-framework"])
-        assert result == 1
-        captured = capsys.readouterr()
-        assert "comparison requires both modes" in captured.err.lower()
-        assert "--baseline" in captured.err
+    def test_run_from_tasks_file(self, tmp_path):
+        repo = _make_repo_with_context(tmp_path)
+        # First generate
+        main(["benchmark", "generate", "--repo", str(repo), "--max-easy", "1", "--max-medium", "0", "--max-hard", "0"])
+        tasks_file = repo / "agent-docs" / "generated-tasks.json"
+        assert tasks_file.exists()
 
-    def test_both_flags_explicit(self, tmp_path):
-        result, kwargs = self._run_with_mock_executor(
-            tmp_path, ["--baseline", "--with-framework"],
-        )
-        assert result == 0
-        assert kwargs["run_baseline"] is True
-        assert kwargs["run_framework"] is True
-
-
-# ---------------------------------------------------------------------------
-# Template selection
-# ---------------------------------------------------------------------------
-
-
-class TestTemplateSelection:
-
-    def test_all_selects_every_template(self, tmp_path):
-        """--tasks all should select all registered templates."""
-        repo = _make_repo_with_structure(tmp_path)
-        mock_executor = _MockExecutor()
-        mock_module = mock.MagicMock()
-        mock_module.create_executor = mock.MagicMock(return_value=mock_executor)
-
-        captured_templates = []
-
-        from pensieve.benchmark import runner as runner_mod
-        original_run = runner_mod.run_benchmark
-
-        def patched_run(**kwargs):
-            captured_templates.extend(kwargs["templates"])
-            return original_run(**kwargs)
-
-        with mock.patch.dict(sys.modules, {"pensieve.benchmark.executor": mock_module}):
-            with mock.patch("pensieve.benchmark.runner.run_benchmark", side_effect=patched_run):
-                result = main(["benchmark", "run", "--repo", str(repo)])
-
-        assert result == 0
-        from pensieve.benchmark.tasks import get_all_templates
-        assert len(captured_templates) == len(get_all_templates())
-
-    def test_specific_template_names(self, tmp_path):
-        """--tasks add_handler,add_test selects exactly those two."""
-        repo = _make_repo_with_structure(tmp_path)
-        mock_executor = _MockExecutor()
-        mock_module = mock.MagicMock()
-        mock_module.create_executor = mock.MagicMock(return_value=mock_executor)
-
-        captured_templates = []
-
-        from pensieve.benchmark import runner as runner_mod
-        original_run = runner_mod.run_benchmark
-
-        def patched_run(**kwargs):
-            captured_templates.extend(kwargs["templates"])
-            return original_run(**kwargs)
-
-        with mock.patch.dict(sys.modules, {"pensieve.benchmark.executor": mock_module}):
-            with mock.patch("pensieve.benchmark.runner.run_benchmark", side_effect=patched_run):
-                result = main([
-                    "benchmark", "run",
-                    "--repo", str(repo),
-                    "--tasks", "add_handler,add_test",
-                ])
-
-        assert result == 0
-        assert len(captured_templates) == 2
-        names = [t.name for t in captured_templates]
-        assert names == ["add_handler", "add_test"]
-
-
-# ---------------------------------------------------------------------------
-# Full integration: outputs written
-# ---------------------------------------------------------------------------
-
-
-class TestBenchmarkOutputs:
-
-    def test_benchmark_json_written(self, tmp_path):
-        """A successful run writes benchmark.json."""
-        repo = _make_repo_with_structure(tmp_path)
-        mock_executor = _MockExecutor()
-        mock_module = mock.MagicMock()
-        mock_module.create_executor = mock.MagicMock(return_value=mock_executor)
-
-        with mock.patch.dict(sys.modules, {"pensieve.benchmark.executor": mock_module}):
-            result = main(["benchmark", "run", "--repo", str(repo)])
-
-        assert result == 0
-        json_path = repo / "agent-docs" / "benchmark.json"
-        assert json_path.exists()
-        data = json.loads(json_path.read_text())
-        assert "verdict" in data
-        assert "deltas" in data
-        assert "with_framework" in data
-        assert "baseline" in data
-
-    def test_benchmark_history_written(self, tmp_path):
-        """A successful run writes benchmark-history.md."""
-        repo = _make_repo_with_structure(tmp_path)
-        mock_executor = _MockExecutor()
-        mock_module = mock.MagicMock()
-        mock_module.create_executor = mock.MagicMock(return_value=mock_executor)
-
-        with mock.patch.dict(sys.modules, {"pensieve.benchmark.executor": mock_module}):
-            result = main(["benchmark", "run", "--repo", str(repo)])
-
-        assert result == 0
-        history_path = repo / "agent-docs" / "benchmark-history.md"
-        assert history_path.exists()
-        content = history_path.read_text()
-        assert "Benchmark History" in content
-
-    def test_custom_output_dir(self, tmp_path):
-        """--output-dir writes outputs to the specified directory."""
-        repo = _make_repo_with_structure(tmp_path)
-        out_dir = tmp_path / "custom_output"
-
+        # Then run from file
         mock_executor = _MockExecutor()
         mock_module = mock.MagicMock()
         mock_module.create_executor = mock.MagicMock(return_value=mock_executor)
@@ -391,46 +268,29 @@ class TestBenchmarkOutputs:
             result = main([
                 "benchmark", "run",
                 "--repo", str(repo),
-                "--output-dir", str(out_dir),
+                "--tasks-file", str(tasks_file),
             ])
-
         assert result == 0
-        assert (out_dir / "benchmark.json").exists()
-        assert (out_dir / "benchmark-history.md").exists()
+
+    def test_no_executor_gives_clear_error(self, capsys, tmp_path):
+        repo = _make_repo_with_context(tmp_path)
+        with mock.patch.dict(sys.modules, {"pensieve.benchmark.executor": None}):
+            result = main(["benchmark", "run", "--repo", str(repo)])
+        assert result == 1
+        assert "no executor" in capsys.readouterr().err.lower()
 
     def test_summary_printed(self, capsys, tmp_path):
-        """A successful run prints the verdict summary."""
-        repo = _make_repo_with_structure(tmp_path)
-        mock_executor = _MockExecutor()
-        mock_module = mock.MagicMock()
-        mock_module.create_executor = mock.MagicMock(return_value=mock_executor)
-
-        with mock.patch.dict(sys.modules, {"pensieve.benchmark.executor": mock_module}):
-            result = main(["benchmark", "run", "--repo", str(repo)])
-
+        result, _ = self._run_with_mock(tmp_path)
         assert result == 0
         captured = capsys.readouterr()
         assert "Verdict:" in captured.out
         assert "Cost:" in captured.out
-        assert "Lenient:" in captured.out
 
-    def test_second_run_appends_history(self, tmp_path):
-        """Running twice appends a second row to benchmark-history.md."""
-        repo = _make_repo_with_structure(tmp_path)
-        mock_executor = _MockExecutor()
-        mock_module = mock.MagicMock()
-        mock_module.create_executor = mock.MagicMock(return_value=mock_executor)
-
-        for _ in range(2):
-            with mock.patch.dict(sys.modules, {"pensieve.benchmark.executor": mock_module}):
-                result = main(["benchmark", "run", "--repo", str(repo)])
-            assert result == 0
-
-        history = (repo / "agent-docs" / "benchmark-history.md").read_text()
-        # Header once, two data rows
-        assert history.count("Benchmark History") == 1
-        pipe_lines = [
-            l for l in history.split("\n")
-            if l.startswith("|") and "Date" not in l and "---" not in l
-        ]
-        assert len(pipe_lines) == 2
+    def test_judge_off_by_default(self, capsys, tmp_path):
+        """Judge should not run unless --judge is passed."""
+        result, repo = self._run_with_mock(tmp_path)
+        assert result == 0
+        # Check benchmark.json — quality should be 0.0 (no judge)
+        data = json.loads((repo / "agent-docs" / "benchmark.json").read_text())
+        # Without judge, quality_avg should be 0.0
+        assert data["with_framework"]["quality_avg"] == 0.0

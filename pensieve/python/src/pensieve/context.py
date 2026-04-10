@@ -596,3 +596,273 @@ def format_subsystem_map(smap: SubsystemMap) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# B14c: Per-subsystem structural brief + LLM file selection
+# ---------------------------------------------------------------------------
+
+
+def build_subsystem_brief(
+    subsystem: SubsystemProposal,
+    structure_path: Path,
+) -> str:
+    """Build a structural brief for one subsystem from structure.json.
+
+    Includes: file list with signatures, imports, call edges, and
+    rationale comments for all files in the subsystem's directories.
+    This is what the LLM reads before deciding which files to read in full.
+    """
+    structure = json.loads(structure_path.read_text(encoding="utf-8"))
+    files = structure.get("files", [])
+
+    # Normalize directory paths for matching
+    dirs = set()
+    for d in subsystem.directories:
+        d = d.rstrip("/")
+        dirs.add(d)
+
+    # Filter files belonging to this subsystem
+    subsystem_files = []
+    for f in files:
+        fp = f["file_path"]
+        parent = str(PurePosixPath(fp).parent)
+        if parent in dirs or any(parent.startswith(d + "/") for d in dirs):
+            subsystem_files.append(f)
+
+    if not subsystem_files:
+        return f"# {subsystem.name}\n\nNo files found in directories: {subsystem.directories}\n"
+
+    lines: list[str] = []
+    lines.append(f"# {subsystem.name}")
+    lines.append(f"Role: {subsystem.role}")
+    lines.append(f"Files: {len(subsystem_files)}")
+    lines.append("")
+
+    # stdlib modules — not useful for file selection context
+    _STDLIB = {
+        "os", "sys", "json", "typing", "pathlib", "datetime",
+        "collections", "dataclasses", "abc", "enum", "re",
+        "logging", "hashlib", "functools", "itertools",
+    }
+
+    for f in sorted(subsystem_files, key=lambda x: x["file_path"]):
+        fp = f["file_path"]
+        lang = f.get("language", "unknown")
+        symbols = f.get("symbols", [])
+        imports = f.get("imports", [])
+        call_edges = f.get("call_edges", [])
+        comments = f.get("comments", [])
+
+        lines.append(f"## {fp} ({lang})")
+
+        if symbols:
+            for sym in symbols:
+                kind = sym.get("kind", "?")
+                name = sym.get("name", "?")
+                sig = sym.get("signature", "")
+                vis = sym.get("visibility", "")
+                parent = sym.get("parent")
+                parent_str = f" (in {parent})" if parent else ""
+                if sig:
+                    lines.append(f"  {vis} {kind} {name}{parent_str}: {sig[:120]}")
+                else:
+                    lines.append(f"  {vis} {kind} {name}{parent_str}")
+
+        internal_imports = [
+            imp for imp in imports
+            if imp.get("module", "").startswith(".")
+            or imp.get("module", "").split(".")[0] not in _STDLIB
+        ]
+        if internal_imports:
+            imp_strs = []
+            for imp in internal_imports[:10]:
+                mod = imp.get("module", "")
+                names = imp.get("names", [])
+                if names:
+                    imp_strs.append(f"{mod} ({', '.join(names[:5])})")
+                else:
+                    imp_strs.append(mod)
+            lines.append(f"  imports: {'; '.join(imp_strs)}")
+
+        if call_edges:
+            lines.append(f"  call edges: {len(call_edges)}")
+
+        if comments:
+            for c in comments[:3]:
+                tag = c.get("tag", "")
+                text = c.get("text", "")[:100]
+                lines.append(f"  {tag}: {text}")
+
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+_FILE_SELECTION_SCHEMA = json.dumps({
+    "type": "object",
+    "properties": {
+        "files": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file to read in full.",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Why this file needs full reading for the deep-dive.",
+                    },
+                },
+                "required": ["file_path", "reason"],
+            },
+        },
+    },
+    "required": ["files"],
+})
+
+_FILE_SELECTION_SYSTEM_PROMPT = """\
+You are a software architect preparing to write detailed documentation for a subsystem.
+
+You have the structural skeleton of every file in the subsystem — signatures, imports, \
+exports, call edges, and rationale comments. This gives you the shape of the code without \
+the implementation details.
+
+Your job: decide which files you need to read IN FULL to produce excellent documentation \
+about this subsystem's architecture, design patterns, design decisions, and modification guide.
+
+Pick files that will reveal:
+- How the subsystem is orchestrated (entry points, main flows)
+- Design patterns and why they were chosen
+- Contracts and invariants that must be preserved
+- The most instructive example of the dominant code pattern
+- Edge cases, gotchas, or non-obvious behavior
+
+Do NOT pick files just because they are large or have many symbols. Pick files that are \
+architecturally revealing. A small config file or a factory function can be more important \
+than a 500-line utility.
+
+There is no budget constraint. Pick as many files as you need to produce excellent \
+documentation. But every file you pick should have a clear reason.\
+"""
+
+
+@dataclass
+class FileSelection:
+    """Files selected by the LLM for full reading."""
+
+    files: list[dict]  # [{"file_path": str, "reason": str}]
+    error: str | None = None
+
+
+def select_files_for_subsystem(
+    subsystem: SubsystemProposal,
+    structure_path: Path,
+    model: str = "sonnet",
+    timeout_seconds: int = 120,
+) -> FileSelection:
+    """Ask the LLM which files to read in full for a subsystem deep-dive.
+
+    Args:
+        subsystem: The confirmed subsystem proposal.
+        structure_path: Path to structure.json.
+        model: Model for file selection.
+        timeout_seconds: Subprocess timeout.
+
+    Returns:
+        FileSelection with file paths and reasons, or error.
+    """
+    brief = build_subsystem_brief(subsystem, structure_path)
+
+    user_prompt = (
+        f"Here is the structural skeleton of the '{subsystem.name}' subsystem.\n\n"
+        f"{brief}\n\n"
+        f"Which files do you need to read in full to write excellent "
+        f"architectural documentation for this subsystem? Explain why for each."
+    )
+
+    cmd = [
+        "claude",
+        "-p",
+        "--output-format", "json",
+        "--model", model,
+        "--no-session-persistence",
+        "--system-prompt", _FILE_SELECTION_SYSTEM_PROMPT,
+        "--json-schema", _FILE_SELECTION_SCHEMA,
+        user_prompt,
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return FileSelection(
+            files=[],
+            error=f"File selection timed out after {timeout_seconds}s",
+        )
+    except FileNotFoundError:
+        return FileSelection(
+            files=[],
+            error="Claude Code CLI not found",
+        )
+
+    output = result.stdout.strip()
+    if not output:
+        return FileSelection(
+            files=[],
+            error=f"Empty stdout. stderr: {result.stderr[:200]}",
+        )
+
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError:
+        return FileSelection(
+            files=[],
+            error=f"Failed to parse JSON: {output[:200]}",
+        )
+
+    if result.returncode != 0:
+        return FileSelection(
+            files=[],
+            error=f"LLM exited with code {result.returncode}. stderr: {result.stderr[:200]}",
+        )
+
+    if data.get("is_error"):
+        return FileSelection(
+            files=[],
+            error=f"LLM error: {data.get('result', 'unknown')}",
+        )
+
+    structured = data.get("structured_output") or {}
+    if isinstance(structured, str):
+        try:
+            structured = json.loads(structured)
+        except (json.JSONDecodeError, TypeError):
+            return FileSelection(
+                files=[],
+                error=f"Unstructured response: {structured[:200]}",
+            )
+
+    if not isinstance(structured, dict):
+        return FileSelection(
+            files=[],
+            error=f"Response is not a dict: {type(structured).__name__}",
+        )
+
+    selected: list[dict] = []
+    for entry in structured.get("files", []):
+        try:
+            selected.append({
+                "file_path": str(entry.get("file_path", "")),
+                "reason": str(entry.get("reason", "")),
+            })
+        except (TypeError, ValueError, AttributeError):
+            continue
+
+    return FileSelection(files=selected)

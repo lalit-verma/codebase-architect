@@ -99,57 +99,79 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="<action>",
     )
 
-    run_parser = bench_sub.add_parser("run", help="Run the benchmark")
+    # --- benchmark generate ---
+    gen_parser = bench_sub.add_parser(
+        "generate",
+        help="Generate benchmark tasks from repo context",
+    )
+    gen_parser.add_argument(
+        "--repo", type=str, default=".",
+        help="Repository root (default: current directory)",
+    )
+    gen_parser.add_argument(
+        "--output", type=str, default=None,
+        help="Output path for generated-tasks.json (default: <repo>/agent-docs/generated-tasks.json)",
+    )
+    gen_parser.add_argument(
+        "--max-easy", type=int, default=3,
+        help="Maximum easy tasks (default: 3)",
+    )
+    gen_parser.add_argument(
+        "--max-medium", type=int, default=2,
+        help="Maximum medium tasks (default: 2)",
+    )
+    gen_parser.add_argument(
+        "--max-hard", type=int, default=2,
+        help="Maximum hard tasks (default: 2)",
+    )
+    gen_parser.add_argument(
+        "--seed", type=int, default=42,
+        help="Random seed for reproducibility (default: 42)",
+    )
+
+    # --- benchmark run ---
+    run_parser = bench_sub.add_parser(
+        "run",
+        help="Generate and run benchmark (or run from existing generated-tasks.json)",
+    )
     run_parser.add_argument(
-        "--repo",
-        type=str,
-        default=".",
+        "--repo", type=str, default=".",
         help="Repository root (default: current directory)",
     )
     run_parser.add_argument(
-        "--tasks",
-        type=str,
-        default="all",
+        "--tasks-file", type=str, default=None,
         help=(
-            "Comma-separated template names, or 'all' for every "
-            "registered template (default: all)"
+            "Path to generated-tasks.json to run. If not specified, "
+            "tasks are generated fresh from repo context."
         ),
     )
     run_parser.add_argument(
-        "--baseline",
-        action="store_true",
-        default=False,
-        help=(
-            "Explicitly include baseline mode. Both modes run by "
-            "default; use --baseline --with-framework together to "
-            "be explicit. Single-mode is not supported."
-        ),
-    )
-    run_parser.add_argument(
-        "--with-framework",
-        action="store_true",
-        default=False,
-        dest="with_framework",
-        help=(
-            "Explicitly include with-framework mode. Both modes run "
-            "by default; use --baseline --with-framework together to "
-            "be explicit. Single-mode is not supported."
-        ),
-    )
-    run_parser.add_argument(
-        "--output-dir",
-        type=str,
-        default=None,
+        "--output-dir", type=str, default=None,
         help="Output directory for benchmark.json (default: <repo>/agent-docs)",
     )
     run_parser.add_argument(
-        "--dev",
-        action="store_true",
-        default=False,
-        help=(
-            "Dev mode: run only the first template to save time. "
-            "Intended for Phase A/B development, not real benchmarking."
-        ),
+        "--max-easy", type=int, default=3,
+        help="Maximum easy tasks to generate (default: 3)",
+    )
+    run_parser.add_argument(
+        "--max-medium", type=int, default=2,
+        help="Maximum medium tasks to generate (default: 2)",
+    )
+    run_parser.add_argument(
+        "--max-hard", type=int, default=2,
+        help="Maximum hard tasks to generate (default: 2)",
+    )
+    run_parser.add_argument(
+        "--seed", type=int, default=42,
+        help="Random seed for task generation (default: 42)",
+    )
+    run_parser.add_argument(
+        "--judge", action="store_true", default=False,
+        help="Run the LLM judge for lenient/quality scoring (adds cost).",
+    )
+    run_parser.add_argument(
+        "--dev", action="store_true", default=False,
+        help="Dev mode: generate 1 easy task only.",
     )
 
     # --- hook subcommand (A3, A4) ---
@@ -238,96 +260,162 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _cmd_benchmark(args) -> int:
-    """Handle the `pensieve benchmark run` subcommand."""
+    """Handle `pensieve benchmark generate` and `pensieve benchmark run`."""
     if not hasattr(args, "bench_action") or args.bench_action is None:
-        print("pensieve benchmark: specify 'run'", file=sys.stderr)
+        print("pensieve benchmark: specify 'generate' or 'run'", file=sys.stderr)
         return 1
 
-    if args.bench_action != "run":
+    if args.bench_action == "generate":
+        return _cmd_benchmark_generate(args)
+    elif args.bench_action == "run":
+        return _cmd_benchmark_run(args)
+    else:
         print(f"pensieve benchmark: unknown action: {args.bench_action}", file=sys.stderr)
         return 1
 
-    from pathlib import Path
 
+def _cmd_benchmark_generate(args) -> int:
+    """Generate benchmark tasks from repo context."""
+    from pathlib import Path
+    from pensieve.benchmark.generate import (
+        build_repo_context, generate_tasks, save_generated_tasks,
+    )
+
+    repo_root = Path(args.repo).resolve()
+    if not repo_root.is_dir():
+        print(f"pensieve benchmark generate: not a directory: {repo_root}", file=sys.stderr)
+        return 1
+
+    structure_path = repo_root / "agent-docs" / "structure.json"
+    graph_path = repo_root / "agent-docs" / "graph.json"
+
+    if not structure_path.exists():
+        print(
+            f"pensieve benchmark generate: no structure.json found.\n"
+            f"  Run `pensieve scan {repo_root}` first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    ctx = build_repo_context(
+        structure_path, graph_path if graph_path.exists() else None,
+        repo_root=repo_root,
+    )
+
+    tasks = generate_tasks(
+        ctx,
+        max_easy=args.max_easy,
+        max_medium=args.max_medium,
+        max_hard=args.max_hard,
+        seed=args.seed,
+    )
+
+    if not tasks:
+        print("pensieve benchmark generate: no tasks could be generated from this repo.", file=sys.stderr)
+        return 1
+
+    output_path = Path(args.output) if args.output else repo_root / "agent-docs" / "generated-tasks.json"
+    save_generated_tasks(tasks, output_path)
+
+    print(f"Generated {len(tasks)} tasks:", flush=True)
+    for t in tasks:
+        setup_str = f" [setup: {len(t.setup_actions)} actions]" if t.setup_actions else ""
+        print(f"  [{t.difficulty}] {t.template_family} ({t.instance_id}){setup_str}", flush=True)
+    print(f"  -> {output_path}", flush=True)
+    return 0
+
+
+def _cmd_benchmark_run(args) -> int:
+    """Generate (or load) and run benchmark tasks."""
+    from pathlib import Path
+    import json as json_mod
+
+    from pensieve.benchmark.generate import (
+        build_repo_context, generate_tasks, save_generated_tasks, TaskInstance,
+    )
     from pensieve.benchmark.history import append_to_history
     from pensieve.benchmark.metrics import aggregate_metrics, write_benchmark_json
-    from pensieve.benchmark.runner import run_benchmark
-    from pensieve.benchmark.tasks import get_all_templates, get_template_by_name
+    from pensieve.benchmark.runner import run_generated_benchmark
 
     repo_root = Path(args.repo).resolve()
     if not repo_root.is_dir():
         print(f"pensieve benchmark run: not a directory: {repo_root}", file=sys.stderr)
         return 1
 
-    # Resolve templates
-    if args.tasks == "all":
-        templates = get_all_templates()
-    else:
-        names = [n.strip() for n in args.tasks.split(",") if n.strip()]
-        templates = []
-        for name in names:
-            t = get_template_by_name(name)
-            if t is None:
-                available = [t.name for t in get_all_templates()]
-                print(
-                    f"pensieve benchmark run: unknown template: {name}\n"
-                    f"  available: {', '.join(available)}",
-                    file=sys.stderr,
-                )
-                return 1
-            templates.append(t)
-
-    if not templates:
-        print("pensieve benchmark run: no templates to run", file=sys.stderr)
-        return 1
-
-    # Dev mode: limit to first template to save time during Phase A/B
-    if args.dev and len(templates) > 1:
-        templates = templates[:1]
-
-    # Resolve modes — benchmark comparison requires both modes.
-    # If neither flag is given, run both (the default).
-    # If both flags are given, run both (explicit).
-    # If only one flag is given, reject: the output artifacts
-    # (benchmark.json, benchmark-history.md) are comparative and
-    # produce misleading deltas/verdicts with only one side populated.
-    run_bl = args.baseline
-    run_fw = args.with_framework
-    if not run_bl and not run_fw:
-        run_bl = True
-        run_fw = True
-    elif run_bl != run_fw:
-        missing = "--with-framework" if run_bl else "--baseline"
-        print(
-            f"pensieve benchmark run: comparison requires both modes.\n"
-            f"  Add {missing} or omit both flags to run the full comparison.\n"
-            f"  Single-mode runs are not supported because benchmark.json\n"
-            f"  and benchmark-history.md are comparative artifacts.",
-            file=sys.stderr,
-        )
-        return 1
-
-    # Resolve output directory
-    output_dir = Path(args.output_dir) if args.output_dir else repo_root / "agent-docs"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Load the Claude Code subprocess executor.
+    # Load executor
     try:
         from pensieve.benchmark.executor import create_executor
         executor = create_executor()
     except ImportError:
         print(
             "pensieve benchmark run: no executor available.\n"
-            "  The benchmark runner requires the executor module\n"
-            "  (pensieve.benchmark.executor) which invokes Claude Code\n"
-            "  as a subprocess.\n"
-            "\n"
-            "  For testing, use the Python API directly with a mock\n"
-            "  executor:\n"
-            "    from pensieve.benchmark.runner import run_benchmark",
+            "  The executor module (pensieve.benchmark.executor) is required.",
             file=sys.stderr,
         )
         return 1
+
+    # Load or generate tasks
+    if args.tasks_file:
+        # Load from existing generated-tasks.json
+        tasks_path = Path(args.tasks_file)
+        if not tasks_path.exists():
+            print(f"pensieve benchmark run: file not found: {tasks_path}", file=sys.stderr)
+            return 1
+        data = json_mod.loads(tasks_path.read_text(encoding="utf-8"))
+        from pensieve.benchmark.template import CheckerSpec
+        instances = []
+        for td in data.get("tasks", []):
+            instances.append(TaskInstance(
+                template_family=td["template_family"],
+                instance_id=td["instance_id"],
+                difficulty=td["difficulty"],
+                instruction=td["instruction"],
+                strict_checker=CheckerSpec(**td["strict_checker"]),
+                lenient_checker=CheckerSpec(**td["lenient_checker"]),
+                setup_actions=td.get("setup_actions", []),
+                source_context=td.get("source_context", ""),
+                tags=td.get("tags", []),
+            ))
+    else:
+        # Generate fresh from repo context
+        structure_path = repo_root / "agent-docs" / "structure.json"
+        graph_path = repo_root / "agent-docs" / "graph.json"
+
+        if not structure_path.exists():
+            print(
+                f"pensieve benchmark run: no structure.json found.\n"
+                f"  Run `pensieve scan {repo_root}` first.",
+                file=sys.stderr,
+            )
+            return 1
+
+        max_easy = 1 if args.dev else args.max_easy
+        max_medium = 0 if args.dev else args.max_medium
+        max_hard = 0 if args.dev else args.max_hard
+
+        ctx = build_repo_context(
+            structure_path, graph_path if graph_path.exists() else None,
+            repo_root=repo_root,
+        )
+        instances = generate_tasks(
+            ctx,
+            max_easy=max_easy,
+            max_medium=max_medium,
+            max_hard=max_hard,
+            seed=args.seed,
+        )
+
+        if not instances:
+            print("pensieve benchmark run: no tasks could be generated.", file=sys.stderr)
+            return 1
+
+        # Save generated tasks for auditability
+        output_dir = Path(args.output_dir) if args.output_dir else repo_root / "agent-docs"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        save_generated_tasks(instances, output_dir / "generated-tasks.json")
+
+    output_dir = Path(args.output_dir) if args.output_dir else repo_root / "agent-docs"
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     def _log(msg: str) -> None:
         print(msg, flush=True)
@@ -340,17 +428,20 @@ def _cmd_benchmark(args) -> int:
             cost = f"${task_result.cost_usd:.3f}"
             _log(f"  [{mode}] {idx}/{total} {name} -> {status} ({cost}, {task_result.time_seconds:.1f}s)")
 
-    _log(f"Running benchmark on {repo_root}")
-    _log(f"  templates: {len(templates)}  baseline: {run_bl}  framework: {run_fw}")
+    by_diff = {"easy": 0, "medium": 0, "hard": 0}
+    for inst in instances:
+        by_diff[inst.difficulty] = by_diff.get(inst.difficulty, 0) + 1
 
-    result = run_benchmark(
+    _log(f"Running benchmark on {repo_root}")
+    _log(f"  tasks: {len(instances)} (easy={by_diff['easy']}, medium={by_diff['medium']}, hard={by_diff['hard']})")
+    _log(f"  judge: {'on' if args.judge else 'off'}")
+
+    result = run_generated_benchmark(
         repo_root=repo_root,
-        templates=templates,
+        instances=instances,
         executor=executor,
-        run_baseline=run_bl,
-        run_framework=run_fw,
         on_progress=_on_progress,
-        run_judge=True,
+        run_judge=args.judge,
     )
 
     # Aggregate metrics
