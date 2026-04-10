@@ -458,6 +458,7 @@ def _cmd_benchmark_run(args) -> int:
 
     # Aggregate metrics
     report = aggregate_metrics(result)
+    report.parallelism = parallelism
 
     # Write benchmark.json
     json_path = write_benchmark_json(report, output_dir / "benchmark.json")

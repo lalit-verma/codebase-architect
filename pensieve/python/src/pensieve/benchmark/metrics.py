@@ -154,6 +154,7 @@ class BenchmarkReport:
     verdict: Verdict
     task_breakdown: list[dict]
     total_time_seconds: float = 0.0
+    parallelism: int = 1
 
 
 def aggregate_metrics(result: BenchmarkResult) -> BenchmarkReport:
@@ -240,6 +241,7 @@ def write_benchmark_json(
         "verdict": report.verdict,
         "task_breakdown": report.task_breakdown,
         "total_time_seconds": report.total_time_seconds,
+        "parallelism": report.parallelism,
     }
 
     output_path.write_text(

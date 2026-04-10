@@ -262,3 +262,78 @@ class TestCLIParallelism:
         assert result == 1
         captured = capsys.readouterr()
         assert "must be >= 1" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# benchmark.json parallelism metadata
+# ---------------------------------------------------------------------------
+
+
+class TestBenchmarkJsonParallelism:
+
+    def test_parallelism_in_benchmark_json(self, tmp_path):
+        """benchmark.json must contain the configured parallelism value."""
+        from pensieve.cli import main
+
+        # Build a repo with enough structure for task generation
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        src = repo / "src"
+        src.mkdir()
+        for name in ("a.py", "b.py", "c.py"):
+            (src / name).write_text(f"def {name[0]}():\n    pass\n")
+
+        (ad / "structure.json").write_text(json.dumps({
+            "repo_root": str(repo),
+            "files": [
+                {"file_path": f"src/{name}", "language": "python",
+                 "symbols": [{"name": name[0], "kind": "function",
+                              "line_start": 1, "line_end": 2,
+                              "signature": f"def {name[0]}():",
+                              "visibility": "public", "parent": None,
+                              "docstring": None, "parameters": [],
+                              "return_type": None}],
+                 "imports": [], "exports": [], "call_edges": [],
+                 "comments": []}
+                for name in ("a.py", "b.py", "c.py")
+            ],
+            "errors": [],
+            "extractor_version": "test",
+        }))
+        (ad / "graph.json").write_text(json.dumps({
+            "nodes": [], "edges": [], "external_imports": [],
+        }))
+
+        mock_executor = _MockExecutor()
+        mock_module = mock.MagicMock()
+        mock_module.create_executor = mock.MagicMock(return_value=mock_executor)
+
+        # Mock judge to avoid real calls
+        from pensieve.benchmark import judge as judge_mod
+        original_judge = judge_mod.judge_task
+
+        def _fake_judge(*a, **kw):
+            return judge_mod.JudgeResult(
+                lenient_pass=False, quality_score=0.0, reasoning="mock",
+            )
+
+        judge_mod.judge_task = _fake_judge
+        try:
+            import sys
+            with mock.patch.dict(sys.modules, {"pensieve.benchmark.executor": mock_module}):
+                result = main([
+                    "benchmark", "run",
+                    "--repo", str(repo),
+                    "--parallelism", "3",
+                    "--dev",
+                ])
+        finally:
+            judge_mod.judge_task = original_judge
+
+        assert result == 0
+        bj = ad / "benchmark.json"
+        assert bj.exists()
+        data = json.loads(bj.read_text())
+        assert data["parallelism"] == 3
