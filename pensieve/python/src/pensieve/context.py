@@ -17,7 +17,6 @@ Layer 1 artifacts.
 from __future__ import annotations
 
 import json
-import subprocess
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
