@@ -81,6 +81,22 @@ def _build_module_index(extractions: list[FileExtraction]) -> dict[str, str]:
         elif existing != value and existing != _AMBIGUOUS:
             index[key] = _AMBIGUOUS
 
+    # First pass: detect Python package roots — directories containing
+    # __init__.py. For a package at backend/open_webui/__init__.py, the
+    # package root is "backend" (the parent of "open_webui"). Files under
+    # it should be indexable as "open_webui.env" (relative to "backend/"),
+    # not just "backend.open_webui.env" (relative to repo root).
+    package_roots: set[str] = set()
+    for ext in extractions:
+        p = PurePosixPath(ext.file_path)
+        if p.name == "__init__.py":
+            # This directory is a Python package.
+            # Its PARENT is a potential source root.
+            parent_of_pkg = str(p.parent.parent)
+            if parent_of_pkg == ".":
+                continue  # top-level __init__.py, repo root is already indexed
+            package_roots.add(parent_of_pkg)
+
     for ext in extractions:
         fp = ext.file_path
         p = PurePosixPath(fp)
@@ -95,6 +111,31 @@ def _build_module_index(extractions: list[FileExtraction]) -> dict[str, str]:
         if parent != ".":
             dotted = parent.replace("/", ".").replace("\\", ".") + "." + stem
             _put(dotted, fp)
+
+        # Dotted module paths relative to detected package roots.
+        # e.g., backend/open_webui/env.py with root "backend" →
+        # "open_webui.env"
+        for root in package_roots:
+            prefix = root + "/"
+            if fp.startswith(prefix):
+                rel = fp[len(prefix):]
+                rel_p = PurePosixPath(rel)
+                if rel_p.stem == "__init__":
+                    # Package __init__ → register directory name
+                    pkg_name = rel_p.parent.name
+                    if pkg_name:
+                        _put(pkg_name, fp)
+                    # Also register dotted parent path for nested packages
+                    # e.g., open_webui/apps/__init__.py → "open_webui.apps"
+                    dotted_pkg = str(rel_p.parent).replace("/", ".")
+                    if dotted_pkg and dotted_pkg != ".":
+                        _put(dotted_pkg, fp)
+                else:
+                    rel_dotted = str(rel_p.parent).replace("/", ".")
+                    if rel_dotted == ".":
+                        _put(rel_p.stem, fp)
+                    else:
+                        _put(rel_dotted + "." + rel_p.stem, fp)
 
         # __init__.py → the directory is the module
         if stem == "__init__":

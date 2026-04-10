@@ -281,8 +281,24 @@ infrastructure we need for every subsequent phase.
   crashing, non-dict structured_output handled, runner wraps
   judge_task() defensively with error surfaced in TaskResult.error
   (not silently swallowed). 20 tests. 743/743 total pass.)*
-- [ ] **A13.** Run on the calibration repo (same repo + same 30 tasks the
-  teammate has been benchmarking externally).
+- [x] **A13.** Run on the calibration repo (same repo + same 30 tasks the
+  teammate has been benchmarking externally). *(2026-04-10:
+  Calibration repo: socrates/socrates (335 files, Python/TS/JS).
+  pensieve scan completed (332 extracted, 0 failures). v1 agent-docs
+  preserved alongside new structure.json + graph.json.
+  Full 5-template run completed in 1594s (~27min), $3.39 total.
+  Verdict: MIXED. FW cheaper (-45.5% cost, -18% tokens) but worse
+  quality (-1.6, -20pp lenient) and much slower (+125% time).
+  Issues found:
+  - FW bug_fix_localized took 3058s, find_owner took 1981s —
+    framework setup may be causing excessive agent tool use
+  - FW cold_navigation timed out entirely (300s, $0)
+  - Quality scores mostly 1.0 — judge may be too harsh or tasks
+    produced genuinely poor output
+  - Baseline cold_navigation got 9.0 quality + lenient PASS
+  - Only baseline outperforms on quality (2.6 vs 1.0)
+  These results contradict teammate's external benchmark (+6.6pp
+  lenient). Discrepancies to investigate in A14.)*
 - [ ] **A14.** Compare auto-benchmark results to the teammate's most
   recent external benchmark. Discrepancies are bugs in our measurement,
   not in the framework — fix them before continuing.
@@ -518,22 +534,55 @@ foundation that multi-repo cross-edge detection needs in Phase C.
     create file-level dependency edges but never runtime call edges.
   - TS `export default interface` / `export default enum` → kind="default".
 
+  Python package root detection (added during B14 prep):
+  - Module index now detects Python package roots via __init__.py and
+    registers dotted paths relative to each root. e.g., backend/
+    open_webui/env.py indexed as both "backend.open_webui.env" (repo
+    root) and "open_webui.env" (package root). Fixed critical resolution
+    gap: socrates calibration repo went from 12 edges to 1938 edges
+    (729 imports, 1208 calls) after this fix.
+
   KNOWN LIMITATIONS: wildcard re-exports don't track individual names;
   re-exported defaults don't chain (single-pass); Go URL-style imports
   and Java package-qualified imports have lower resolution accuracy.
 
-  **Phase B Layer 1 total: 529 tests across 24 test files, all passing.**)*
-- [ ] **B14.** Update Phase 2 deep-dive prompts to consume `structure.json`
-  + 5–10 sample files chosen by centrality, instead of reading every file
-  in the subsystem.
+  47 tests. 745/745 total pass.)*
+- [ ] **B14.** *(merged with B17, in progress)* Build the Layer 2 LLM
+  orchestration pipeline: graph-driven subsystem detection → LLM-directed
+  file reading → subsystem documentation. *(B14a complete: directory
+  profiler in `src/pensieve/context.py`. Reads structure.json + graph.json,
+  computes per-directory profiles with file counts, language breakdown,
+  internal edge density, outgoing/incoming edge targets, key symbols,
+  auto-generated/test flags. Auto-collapses single-child directories.
+  `format_profiles_for_llm()` produces concise structural brief.
+  Validated on socrates repo — 30 directories profiled with clear
+  architectural signals. 18 tests. B14b complete: `propose_subsystems()`
+  feeds profiles to LLM via --json-schema, returns SubsystemMap with
+  named subsystems, directory assignments, roles, rationale. Defensive
+  error handling on all paths. `format_subsystem_map()` for human
+  checkpoint. 29 tests. 774/774 total pass.)* Full pipeline:
+  1. **Subsystem detection (deterministic):** Directory-based clustering
+     validated by graph edges (split disconnected dirs, merge tightly-
+     coupled ones). Produces candidate subsystem list with structural
+     briefs (file list, signatures, imports, exports, call edges,
+     rationale comments, cross-subsystem dependencies).
+  2. **LLM refinement:** LLM reads structural briefs + graph summary,
+     refines boundaries (merge/split/rename). Then picks files to read
+     in full per subsystem — no budget constraint, quality over cost.
+  3. **Human checkpoint:** Chat-first confirmation of subsystem map.
+  4. **LLM deep-dive:** Per confirmed subsystem, LLM reads structural
+     brief + requested file contents. Produces subsystem document
+     (adapted from v1 template: boundaries, structure, contracts,
+     flows, dependencies, design decisions, patterns, modification
+     guide).
+  5. **Synthesis:** All subsystem docs + graph → patterns.md,
+     agent-context.md, agent-context-nano.md.
 - [ ] **B15.** Validate quality on the calibration repo: LLM-judged
   subsystem doc quality must match or beat pre-Phase-B output.
 - [ ] **B16.** Run auto-benchmark from Phase A end state on the
   calibration repo. Phase 2 token cost should drop dramatically; quality
   should be flat or up.
-- [ ] **B17.** Add structural extraction to Phase 1 (subsystem mapping) —
-  feed the LLM the structural graph instead of letting it explore raw
-  files for classification. Chat-first checkpoint preserved.
+- ~~**B17.**~~ *(merged into B14)*
 
 ### Proceed criterion (Phase B → Phase C)
 
@@ -728,6 +777,33 @@ benchmark numbers — they should come after validation, not before.
   Collect feedback. File issues for everything that surprises them.
 - [ ] **D10.** Iterate based on real-world usage. Not every issue is a
   Phase D thing — some will need work in earlier layers.
+- [ ] **D11.** Overhaul the benchmark task generation framework. The
+  current static PlaceholderFiller + fixed templates produce poor tasks
+  on real repos (A13 findings: picked migrations dir as "most common
+  pattern," root-level utility script as target file, planted
+  non-existent bug caused 50-min agent spin). Replace with dynamic
+  task generation from `structure.json` + `graph.json`:
+  - Use import centrality from graph.json to pick target files (not
+    most-common-dir heuristic)
+  - Filter out auto-generated dirs (migrations, generated, vendor)
+  - Pick functions with real logic for bug_fix tasks (not planted
+    comment bugs)
+  - Generate repo-specific instructions that give Claude enough
+    context to act without excessive exploration
+  - Option B (deterministic from structure.json) first; escalate to
+    Option C (LLM-generated tasks) if heuristics aren't sufficient
+  - Must be reproducible: same structure.json → same task set
+- [ ] **D12.** Auto-update agent-docs as the repo evolves. Two levels:
+  (1) Structural refresh — re-run `pensieve scan` on changed files,
+  update structure.json + graph.json. Triggered by SHA256 cache diff,
+  near-zero cost. (2) Doc refresh — when structural diff exceeds a
+  threshold (new subsystem, major dependency change, new patterns),
+  LLM re-evaluates affected subsystem docs. Targeted, not full
+  regeneration. Triggers: git hook (post-commit/post-merge), CI step,
+  manual `pensieve refresh`, or PreToolUse hook detecting stale docs
+  (structure.json newer than subsystem docs). Design constraint: only
+  regenerate docs for subsystems whose structural brief changed, not
+  the entire doc set.
 
 ### Proceed criterion
 
@@ -763,6 +839,11 @@ and users adopt it.
 | 2026-04-10 | **Phase reorder:** B before A remainder, then E2E testing, then C, then D | Phase A proceed criterion met early via teammate's external benchmark. Phase B (AST extraction) is the highest-value next step. Remaining Phase A milestones (A3–A15: hook CLI + auto-benchmark) are stable-scope tooling that won't be affected by Phase B and can be completed after. Teammate covers measurement needs during Phase B. |
 | 2026-04-10 | **PreToolUse hook uses JSON `hookSpecificOutput.additionalContext`, not plain echo** | Web search of official Claude Code hooks docs confirmed: plain stdout from PreToolUse hooks only shows in verbose mode (Ctrl+O). The documented way to inject context into the agent is JSON output with `hookSpecificOutput.additionalContext`. graphify's plain-echo pattern may not be reaching the agent. Our hook uses the documented JSON mechanism, verified end-to-end by Lalit on 2026-04-08. |
 | 2026-04-10 | **Cache invalidation key = hash of extractor source files, not `__version__`** | Review finding: `__version__` is a static `0.0.1` string that doesn't change when extractor logic changes, so stale cache entries survive extractor bug fixes. Fix: `EXTRACTOR_HASH` is computed at import time by SHA256-hashing all `extractors/*.py` + `schema.py` source files. Any change to any extractor file auto-invalidates all cache entries. Zero developer discipline required. Falls back to `__version__` if source files can't be located (frozen distributions). |
+| 2026-04-10 | **Benchmark task generation deferred to D11** | A13 full run revealed static PlaceholderFiller produces nonsensical tasks on real repos (migrations as pattern target, planted non-existent bugs causing 50-min agent spins, root-level utility scripts as target files). Needs dynamic task generation from structure.json + graph.json. Logged as D11, non-blocking for Phase B Layer 2 work. |
+| 2026-04-10 | **Quality over cost for first-time doc generation** | Initial generation should read generously — no token budget constraint on file reading. The AST skeleton eliminates enumeration (LLM doesn't discover what exists) but for understanding patterns/decisions/rationale, reading more files = better docs. Cost savings are reaped by every agent session that uses the docs afterward, not during generation. |
+| 2026-04-10 | **Subsystem detection: hybrid directory + graph, LLM-refined, human-confirmed** | Directory structure as starting point (human-intuitive names), graph edges to validate/correct (split disconnected dirs, merge tightly-coupled ones), LLM to refine (merge/split/name based on semantic understanding), human confirms via chat-first checkpoint. Skip Leiden for now — add as fallback for flat repos if needed. |
+| 2026-04-10 | **B14+B17 merged** | Both consume structure.json + graph.json for the LLM orchestration layer. B14 (deep-dive prompts) and B17 (structural graph into subsystem mapping) are the same pipeline: graph → subsystem boundaries → per-subsystem deep-dive. Splitting them was the pre-AST plan. |
+| 2026-04-10 | **Auto-updating agent-docs (D12)** | Docs become stale on every merge. Two-level refresh: structural (deterministic, near-zero cost on changed files) and doc-level (LLM re-evaluates affected subsystems when structural diff exceeds threshold). Deferred to Phase D. |
 
 ---
 

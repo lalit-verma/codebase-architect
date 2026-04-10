@@ -91,6 +91,40 @@ class TestModuleIndex:
         idx = _build_module_index([_ext("models/__init__.py")])
         assert "models" in idx
 
+    # --- Regression: Python package root detection ---
+
+    def test_package_root_dotted_import(self):
+        """Files under a directory containing __init__.py should be
+        indexable with dotted paths relative to the package's parent.
+        e.g., backend/open_webui/env.py with backend/open_webui/__init__.py
+        should be findable as 'open_webui.env'."""
+        idx = _build_module_index([
+            _ext("backend/open_webui/__init__.py"),
+            _ext("backend/open_webui/env.py"),
+            _ext("backend/open_webui/utils/redis.py"),
+            _ext("backend/open_webui/utils/__init__.py"),
+        ])
+        # Package-relative dotted paths
+        assert idx.get("open_webui.env") == "backend/open_webui/env.py"
+        assert idx.get("open_webui.utils.redis") == "backend/open_webui/utils/redis.py"
+        # Repo-root dotted paths still work
+        assert idx.get("backend.open_webui.env") == "backend/open_webui/env.py"
+
+    def test_package_root_import_resolution(self):
+        """Imports like 'open_webui.env' should resolve to
+        backend/open_webui/env.py when __init__.py exists."""
+        exts = [
+            _ext("backend/open_webui/__init__.py"),
+            _ext("backend/open_webui/env.py", symbols=[_sym("DEBUG")]),
+            _ext("backend/open_webui/config.py",
+                 imports=[_imp("open_webui.env", ["DEBUG"])]),
+        ]
+        graph = build_graph(exts)
+        import_edges = [e for e in graph["edges"] if e["kind"] == "imports"]
+        assert len(import_edges) == 1
+        assert import_edges[0]["source"] == "backend/open_webui/config.py"
+        assert import_edges[0]["target"] == "backend/open_webui/env.py"
+
 
 # ---------------------------------------------------------------------------
 # Import edges
