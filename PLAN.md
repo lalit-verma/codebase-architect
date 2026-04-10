@@ -207,13 +207,13 @@ infrastructure we need for every subsequent phase.
   49 tests covering validation, serialization, placeholder inventory,
   registry, and per-template spot checks. 578/578 total tests pass.)*
 - [x] **A8.** Implement the baseline runner — runs each task without any
-  `agent-docs/` present, measures tokens, cost, time, lenient pass via
-  LLM judge. *(2026-04-10: `src/pensieve/benchmark/runner.py` with
-  PlaceholderFiller (reads structure.json, fills all documented
-  placeholders), run_strict_check (file_exists, content_contains,
-  symbol_exists), TaskResult dataclass, Executor protocol for pluggable
-  agent invocation, run_task orchestrator. MockExecutor for testing.
-  21 tests. 617/617 total tests pass.)*
+  `agent-docs/` present, measures tokens, cost, time, strict pass.
+  Lenient pass and quality score fields exist in TaskResult but are
+  populated by the LLM judge (pluggable, not part of A8).
+  *(2026-04-10, updated after review: PlaceholderFiller (reads
+  structure.json, excludes test dirs from pattern/subsystem heuristics),
+  run_strict_check (file_exists, content_contains, symbol_exists),
+  TaskResult dataclass, Executor protocol, run_task orchestrator.)*
 - [x] **A9.** Implement the with-framework runner — runs each task with
   the hybrid wiring + PreToolUse hook installed. *(2026-04-10:
   setup_baseline (hides agent-docs, uninstalls hook),
@@ -221,11 +221,18 @@ infrastructure we need for every subsequent phase.
   (restores agent-docs), run_benchmark orchestrator (both modes,
   all templates, auto-scan if needed). BenchmarkResult dataclass.
   16 tests. 633/633 total tests pass.)*
-- [ ] **A10.** Implement metrics aggregation: `benchmark.json` schema with
+- [x] **A10.** Implement metrics aggregation: `benchmark.json` schema with
   `with_framework` + `baseline` + `deltas` + `verdict` (PASS / MIXED /
-  FAIL).
-- [ ] **A11.** Implement `benchmark-history.md` generator — appends each
-  run's summary so successive re-runs show trends.
+  FAIL). *(2026-04-10: `src/pensieve/benchmark/metrics.py` with
+  ModeStats, Deltas, compute_verdict (PASS/MIXED/FAIL), aggregate_metrics,
+  write_benchmark_json. Per-task breakdown pairs both modes. Handles
+  empty results and error exclusion. 19 tests. 652/652 total pass.)*
+- [x] **A11.** Implement `benchmark-history.md` generator — appends each
+  run's summary so successive re-runs show trends. *(2026-04-10:
+  `src/pensieve/benchmark/history.py` with append_to_history(). Creates
+  markdown table on first run, appends row per subsequent run. Columns:
+  date, verdict, cost/lenient/quality/tokens/time deltas, task count.
+  Never overwrites existing content. 11 tests. 668/668 total pass.)*
 - [ ] **A12.** Implement the CLI: `pensieve benchmark run --repo <path>
   --tasks all --baseline --with-framework`.
 - [ ] **A13.** Run on the calibration repo (same repo + same 30 tasks the

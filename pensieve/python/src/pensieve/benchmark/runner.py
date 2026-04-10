@@ -116,11 +116,28 @@ class PlaceholderFiller:
 
         # --- Derive placeholder values ---
 
-        # Find the most common pattern (most symbols of same kind in same dir)
+        # Directories that are test-related — excluded from pattern/subsystem
+        _TEST_DIR_NAMES = frozenset({
+            "tests", "test", "spec", "specs", "__tests__",
+            "test_", "_test", "testing",
+        })
+
+        def _is_test_dir(dir_path: str) -> bool:
+            parts = Path(dir_path).parts
+            return any(p.lower() in _TEST_DIR_NAMES for p in parts)
+
+        # Find the most common SOURCE directory (exclude test dirs)
         dir_counts: dict[str, int] = {}
         for f in files:
             parent = str(Path(f["file_path"]).parent)
-            dir_counts[parent] = dir_counts.get(parent, 0) + 1
+            if not _is_test_dir(parent):
+                dir_counts[parent] = dir_counts.get(parent, 0) + 1
+
+        # Fallback: if all files are in test dirs, use all dirs
+        if not dir_counts:
+            for f in files:
+                parent = str(Path(f["file_path"]).parent)
+                dir_counts[parent] = dir_counts.get(parent, 0) + 1
 
         most_common_dir = max(dir_counts, key=dir_counts.get)  # type: ignore
         files_in_dir = [
@@ -473,6 +490,10 @@ def run_benchmark(
 ) -> BenchmarkResult:
     """Run the full benchmark: baseline + with_framework on all templates.
 
+    Each mode runs on a FRESH COPY of the repo to prevent
+    contamination (executor modifications in one mode don't leak
+    into the other). The original repo is never modified.
+
     Args:
         repo_root: Path to the target repo.
         templates: Task templates to run.
@@ -483,13 +504,16 @@ def run_benchmark(
     Returns:
         BenchmarkResult with per-task results for each mode.
     """
+    import shutil
+    import tempfile
+
     start = time.monotonic()
     repo_root = repo_root.resolve()
 
     baseline_results: list[TaskResult] = []
     framework_results: list[TaskResult] = []
 
-    # --- Phase 1: Ensure scan is done (needed for placeholder filling) ---
+    # --- Phase 1: Ensure scan is done on the ORIGINAL repo ---
     agent_docs = repo_root / "agent-docs"
     if not (agent_docs / "structure.json").exists():
         from pensieve.scan import scan_repo
@@ -499,31 +523,37 @@ def run_benchmark(
     filler = PlaceholderFiller(repo_root)
     placeholder_values = filler.values
 
-    # --- Phase 2: With-framework run (run first so agent-docs is present) ---
+    # --- Phase 2: With-framework run on a FRESH COPY ---
     if run_framework:
-        fw_state = setup_framework(repo_root)
+        fw_dir = Path(tempfile.mkdtemp(prefix="pensieve_bench_fw_"))
+        fw_copy = fw_dir / "repo"
         try:
+            shutil.copytree(repo_root, fw_copy)
+            fw_state = setup_framework(fw_copy)
             for template in templates:
                 result = run_task(
-                    template, repo_root, executor, "with_framework",
+                    template, fw_copy, executor, "with_framework",
                     placeholder_values=placeholder_values,
                 )
                 framework_results.append(result)
         finally:
-            teardown_framework(repo_root, fw_state)
+            shutil.rmtree(fw_dir, ignore_errors=True)
 
-    # --- Phase 3: Baseline run (agent-docs hidden) ---
+    # --- Phase 3: Baseline run on a SEPARATE FRESH COPY ---
     if run_baseline:
-        bl_state = setup_baseline(repo_root)
+        bl_dir = Path(tempfile.mkdtemp(prefix="pensieve_bench_bl_"))
+        bl_copy = bl_dir / "repo"
         try:
+            shutil.copytree(repo_root, bl_copy)
+            bl_state = setup_baseline(bl_copy)
             for template in templates:
                 result = run_task(
-                    template, repo_root, executor, "baseline",
+                    template, bl_copy, executor, "baseline",
                     placeholder_values=placeholder_values,
                 )
                 baseline_results.append(result)
         finally:
-            teardown_baseline(repo_root, bl_state)
+            shutil.rmtree(bl_dir, ignore_errors=True)
 
     elapsed = round(time.monotonic() - start, 3)
 

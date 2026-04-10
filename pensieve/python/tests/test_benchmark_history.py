@@ -1,0 +1,170 @@
+"""Tests for benchmark history generator (milestone A11).
+
+Covers:
+  - First run: creates file with header + first row
+  - Subsequent run: appends row, preserves header
+  - Row content: verdict, deltas, task count
+  - Custom timestamp
+  - Parent directory creation
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from pensieve.benchmark.history import append_to_history, _format_row
+from pensieve.benchmark.metrics import BenchmarkReport, Deltas, ModeStats
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_report(
+    verdict: str = "PASS",
+    cost_pct: float = -10.0,
+    lenient_pp: float = 6.6,
+    quality_diff: float = 0.2,
+    tokens_pct: float = -5.0,
+    time_pct: float = -10.0,
+    task_count: int = 5,
+) -> BenchmarkReport:
+    return BenchmarkReport(
+        repo_root="/tmp/repo",
+        with_framework=ModeStats(task_count=task_count),
+        baseline=ModeStats(task_count=task_count),
+        deltas=Deltas(
+            cost_pct=cost_pct,
+            lenient_pass_pp=lenient_pp,
+            quality_diff=quality_diff,
+            tokens_pct=tokens_pct,
+            time_pct=time_pct,
+        ),
+        verdict=verdict,
+        task_breakdown=[],
+        total_time_seconds=30.0,
+    )
+
+
+# ---------------------------------------------------------------------------
+# _format_row
+# ---------------------------------------------------------------------------
+
+
+class TestFormatRow:
+
+    def test_contains_verdict(self):
+        row = _format_row(_make_report(verdict="PASS"), timestamp="2026-04-10 14:00")
+        assert "**PASS**" in row
+
+    def test_contains_deltas(self):
+        row = _format_row(
+            _make_report(cost_pct=-10.0, lenient_pp=6.6, quality_diff=0.2),
+            timestamp="2026-04-10 14:00",
+        )
+        assert "-10.0%" in row
+        assert "+6.6pp" in row
+        assert "+0.20" in row
+
+    def test_contains_task_count(self):
+        row = _format_row(_make_report(task_count=5), timestamp="2026-04-10 14:00")
+        assert "5" in row
+
+    def test_negative_deltas_show_minus(self):
+        row = _format_row(
+            _make_report(cost_pct=-15.0, lenient_pp=-3.0, quality_diff=-0.5),
+            timestamp="2026-04-10 14:00",
+        )
+        assert "-15.0%" in row
+        assert "-3.0pp" in row
+        assert "-0.50" in row
+
+    def test_custom_timestamp(self):
+        row = _format_row(_make_report(), timestamp="2026-01-01 00:00")
+        assert "2026-01-01 00:00" in row
+
+
+# ---------------------------------------------------------------------------
+# append_to_history
+# ---------------------------------------------------------------------------
+
+
+class TestAppendToHistory:
+
+    def test_first_run_creates_file(self, tmp_path):
+        path = tmp_path / "benchmark-history.md"
+        assert not path.exists()
+
+        append_to_history(_make_report(), path, timestamp="2026-04-10 14:00")
+
+        assert path.exists()
+        content = path.read_text()
+        assert "# Benchmark History" in content
+        assert "**PASS**" in content
+        assert "2026-04-10 14:00" in content
+
+    def test_second_run_appends(self, tmp_path):
+        path = tmp_path / "benchmark-history.md"
+
+        append_to_history(
+            _make_report(verdict="PASS"), path, timestamp="2026-04-10 14:00",
+        )
+        append_to_history(
+            _make_report(verdict="MIXED"), path, timestamp="2026-04-11 10:00",
+        )
+
+        content = path.read_text()
+        # Header should appear only once
+        assert content.count("# Benchmark History") == 1
+        # Both rows present
+        assert "**PASS**" in content
+        assert "**MIXED**" in content
+        assert "2026-04-10 14:00" in content
+        assert "2026-04-11 10:00" in content
+
+    def test_three_runs_show_trend(self, tmp_path):
+        path = tmp_path / "benchmark-history.md"
+
+        for i, (v, cost) in enumerate([
+            ("FAIL", 11.0),
+            ("MIXED", 2.0),
+            ("PASS", -10.0),
+        ]):
+            append_to_history(
+                _make_report(verdict=v, cost_pct=cost),
+                path,
+                timestamp=f"2026-04-{10+i} 12:00",
+            )
+
+        content = path.read_text()
+        lines = [l for l in content.split("\n") if l.startswith("|") and "Date" not in l and "---" not in l]
+        assert len(lines) == 3
+        # Trend: FAIL → MIXED → PASS
+        assert "FAIL" in lines[0]
+        assert "MIXED" in lines[1]
+        assert "PASS" in lines[2]
+
+    def test_creates_parent_directory(self, tmp_path):
+        path = tmp_path / "deep" / "nested" / "benchmark-history.md"
+        append_to_history(_make_report(), path, timestamp="2026-04-10 14:00")
+        assert path.exists()
+
+    def test_preserves_existing_content(self, tmp_path):
+        path = tmp_path / "benchmark-history.md"
+
+        # Write some pre-existing content
+        path.write_text("# Benchmark History\n\nSome custom note.\n\n")
+
+        append_to_history(_make_report(), path, timestamp="2026-04-10 14:00")
+
+        content = path.read_text()
+        assert "Some custom note." in content
+        assert "**PASS**" in content
+
+    def test_returns_path(self, tmp_path):
+        path = tmp_path / "benchmark-history.md"
+        result = append_to_history(_make_report(), path, timestamp="2026-04-10 14:00")
+        assert result == path
