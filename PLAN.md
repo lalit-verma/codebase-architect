@@ -1,6 +1,6 @@
 # Code Pensieve — Build Plan
 
-> **Status:** Phase A resumed (A3–A12b complete, A13 next); Phase B Layer 1 (B1–B13) complete
+> **Status:** Phase A: A1–A12b complete, A13 provisional; Phase B: Layer 1 (B1–B13) complete, Layer 2 (B14) code-complete awaiting real-repo validation
 > **Last updated:** 2026-04-10
 > **Owners:** Lalit + Claude (collaborative build)
 
@@ -109,8 +109,8 @@ new code). Everything else either supports these or is for human reference.
 
 | Phase | Goal | Status |
 |---|---|---|
-| **A** | Hooks + auto-benchmark | A1–A12b complete; A13–A15 remaining |
-| **B** | AST extraction (Layer 1 + integration into Layer 2) | Layer 1 complete (B1–B13, 529 tests); Layer 2 integration (B14–B17) pending |
+| **A** | Hooks + auto-benchmark | A1–A12b complete. A13 provisional (infra validated, awaiting v2 docs). A14–A15 blocked on A13. |
+| **B** | AST extraction (Layer 1 + integration into Layer 2) | Layer 1 complete (B1–B13). Layer 2 B14 code-complete (5 sub-steps + CLI + wire). B15–B16 next (validation + benchmark). |
 | **C** | Multi-repo support | not started |
 | **D** | MCP, multi-platform, polish, distribution | not started |
 
@@ -249,7 +249,10 @@ infrastructure we need for every subsequent phase.
   calls run_benchmark → aggregate_metrics → write_benchmark_json →
   append_to_history, prints verdict summary. Post-review fixes:
   single-mode invocation rejected (comparative artifacts need both
-  modes), help strings updated. 18 tests. 722/722 total pass.)*
+  modes), help strings updated. REWORKED in A13: CLI now uses
+  generated TaskInstance path (`benchmark generate` + `benchmark run
+  --tasks-file`). Old static-template path deprecated. 855/855 total
+  pass.)*
 - [x] **A12a.** Implement the Claude Code subprocess executor and
   per-task progress logging. *(2026-04-10:
   `src/pensieve/benchmark/executor.py` with ClaudeCodeExecutor. Invokes
@@ -326,7 +329,14 @@ infrastructure we need for every subsequent phase.
   - Judge timeout increased to 180s (60s caused false zeros)
   - Enriched RepoContext: README, config files, entrypoints,
     test conventions, cross-dir edges, registration hubs
-  - 823 total tests pass.
+  - Parallel execution: `--parallelism N` via ThreadPoolExecutor,
+    results sorted back to original order, parallelism in benchmark.json
+  - Task audit: `audit_tasks()` prints why-selected, target files,
+    expected artifacts, setup actions, benchmarkability for each task
+  - `benchmark generate` CLI: produces + audits generated-tasks.json
+  - `benchmark run --tasks-file`: runs from frozen task file
+  - Judge timeout increased to 180s (60s caused false zeros)
+  - 855 total tests pass.
 
   CALIBRATION RUN (2026-04-10, 2 tasks: 1 easy + 1 medium):
   - FW cost -1.0%, tokens +13.8%, time -0.1%, quality +0.00,
@@ -648,9 +658,17 @@ foundation that multi-repo cross-edge detection needs in Phase C.
   agent-context-nano.md (≤40 lines). Each call gets directory
   profiles + subsystem doc summaries. `save_synthesis()` writes
   artifacts. Independent error handling per call. 56 tests.
-  840/840 total pass.
-  STATUS: B14 code-complete. All 5 sub-steps built. Needs CLI
-  orchestration command and real-repo validation (B15).)*
+  CLI orchestration: `pensieve analyze <path>` runs the full 5-stage
+  pipeline (scan → profile → propose → generate → synthesize) with
+  per-stage progress logging. `--model` flag for LLM model selection.
+  Per-subsystem failure handling (one failed doc doesn't stop others).
+  `pensieve wire --repo <path>` inlines nano-digest into CLAUDE.md
+  (with `<!-- pensieve:nano:start/end -->` markers for idempotent
+  replacement) + installs PreToolUse hook. `--unwire` reverses both.
+  Full CLI tool chain: scan → analyze → wire → benchmark.
+  855/855 total pass.
+  STATUS: B14 code-complete including CLI and wiring. Awaiting
+  real-repo validation (B15).)*
   Full pipeline:
   1. **Subsystem detection (deterministic):** Directory-based clustering
      validated by graph edges (split disconnected dirs, merge tightly-
@@ -687,7 +705,7 @@ foundation that multi-repo cross-edge detection needs in Phase C.
 4. Re-runs on unchanged files take <10% of first-run time on the
    calibration repo (cache is working).
 
-### Phase B status: in progress (B1 complete)
+### Phase B status: Layer 1 complete (B1–B13), Layer 2 B14 code-complete, B15–B16 next
 
 ### Phase B notes
 
@@ -738,6 +756,35 @@ foundation that multi-repo cross-edge detection needs in Phase C.
   `method_declaration` + `constructor_declaration`; Rust uses
   `function_item` (not `function_declaration`) and `impl_item` +
   `trait_item`. These node-type names are critical for B4-B9 extractors.
+
+- **2026-04-10 (B13 fix):** Python package root detection in graph
+  module index. `__init__.py` directories register dotted paths
+  relative to their parent (e.g., `open_webui.env` resolves to
+  `backend/open_webui/env.py`). Socrates repo: 12 → 1938 edges.
+
+- **2026-04-10 (B14):** Layer 2 LLM orchestration pipeline built in
+  5 sub-steps, all in `src/pensieve/context.py`:
+  - B14a: Directory profiler (`profile_directories`) — deterministic
+    directory profiles with edge density, coupling, flags
+  - B14b: Subsystem proposer (`propose_subsystems`) — LLM proposes
+    boundaries from directory profiles via --json-schema
+  - B14c: File selector (`select_files_for_subsystem`) — LLM picks
+    key files per subsystem from structural brief
+  - B14d: Deep-dive generator (`generate_subsystem_doc`) — LLM reads
+    brief + selected file contents → subsystem markdown document
+  - B14e: Synthesis (`synthesize_docs`) — three LLM calls producing
+    patterns.md, agent-context.md (≤120 lines), agent-context-nano.md
+    (≤40 lines) from all subsystem docs
+  CLI: `pensieve analyze <path>` orchestrates all 5 stages with
+  per-stage progress logging. `pensieve wire --repo <path>` inlines
+  nano into CLAUDE.md + installs hook. `--unwire` reverses.
+  Design decisions: quality over cost for generation (no file-reading
+  budget), LLM-directed file selection (not centrality heuristic),
+  hybrid directory+graph subsystem detection (Leiden deferred),
+  approach E for boundary detection (multi-signal + LLM judgment).
+  855 tests total. Validated subsystem proposal + file selection on
+  socrates repo (11 subsystems proposed, 14 files selected for Data
+  Models subsystem with architecturally specific reasons).
 
 ---
 
@@ -868,22 +915,16 @@ benchmark numbers — they should come after validation, not before.
   Collect feedback. File issues for everything that surprises them.
 - [ ] **D10.** Iterate based on real-world usage. Not every issue is a
   Phase D thing — some will need work in earlier layers.
-- [ ] **D11.** Overhaul the benchmark task generation framework. The
-  current static PlaceholderFiller + fixed templates produce poor tasks
-  on real repos (A13 findings: picked migrations dir as "most common
-  pattern," root-level utility script as target file, planted
-  non-existent bug caused 50-min agent spin). Replace with dynamic
-  task generation from `structure.json` + `graph.json`:
-  - Use import centrality from graph.json to pick target files (not
-    most-common-dir heuristic)
-  - Filter out auto-generated dirs (migrations, generated, vendor)
-  - Pick functions with real logic for bug_fix tasks (not planted
-    comment bugs)
-  - Generate repo-specific instructions that give Claude enough
-    context to act without excessive exploration
-  - Option B (deterministic from structure.json) first; escalate to
-    Option C (LLM-generated tasks) if heuristics aren't sufficient
-  - Must be reproducible: same structure.json → same task set
+- [x] **D11.** Overhaul the benchmark task generation framework.
+  *(COMPLETED as part of A13 rework, 2026-04-10. Replaced static
+  PlaceholderFiller + 5 fixed templates with repo-aware generation:
+  RepoContext from structure.json + graph.json, TaskGenerator producing
+  concrete TaskInstances, 6 task families (add_sibling, add_test,
+  bug_fix with real code mutations, architecture, find_owner,
+  cross_subsystem), difficulty stratification, setup_action execution,
+  parallel runner, task audit, generated-tasks.json for auditability.
+  Remaining: registration/wiring task family, LLM-generated tasks
+  (Option C) if deterministic heuristics prove insufficient.)*
 - [ ] **D12.** Auto-update agent-docs as the repo evolves. Two levels:
   (1) Structural refresh — re-run `pensieve scan` on changed files,
   update structure.json + graph.json. Triggered by SHA256 cache diff,
@@ -930,7 +971,7 @@ and users adopt it.
 | 2026-04-10 | **Phase reorder:** B before A remainder, then E2E testing, then C, then D | Phase A proceed criterion met early via teammate's external benchmark. Phase B (AST extraction) is the highest-value next step. Remaining Phase A milestones (A3–A15: hook CLI + auto-benchmark) are stable-scope tooling that won't be affected by Phase B and can be completed after. Teammate covers measurement needs during Phase B. |
 | 2026-04-10 | **PreToolUse hook uses JSON `hookSpecificOutput.additionalContext`, not plain echo** | Web search of official Claude Code hooks docs confirmed: plain stdout from PreToolUse hooks only shows in verbose mode (Ctrl+O). The documented way to inject context into the agent is JSON output with `hookSpecificOutput.additionalContext`. graphify's plain-echo pattern may not be reaching the agent. Our hook uses the documented JSON mechanism, verified end-to-end by Lalit on 2026-04-08. |
 | 2026-04-10 | **Cache invalidation key = hash of extractor source files, not `__version__`** | Review finding: `__version__` is a static `0.0.1` string that doesn't change when extractor logic changes, so stale cache entries survive extractor bug fixes. Fix: `EXTRACTOR_HASH` is computed at import time by SHA256-hashing all `extractors/*.py` + `schema.py` source files. Any change to any extractor file auto-invalidates all cache entries. Zero developer discipline required. Falls back to `__version__` if source files can't be located (frozen distributions). |
-| 2026-04-10 | **Benchmark task generation deferred to D11** | A13 full run revealed static PlaceholderFiller produces nonsensical tasks on real repos (migrations as pattern target, planted non-existent bugs causing 50-min agent spins, root-level utility scripts as target files). Needs dynamic task generation from structure.json + graph.json. Logged as D11, non-blocking for Phase B Layer 2 work. |
+| 2026-04-10 | **Benchmark task generation overhauled (D11 done)** | A13 full run revealed static PlaceholderFiller was broken. Replaced with RepoContext + TaskGenerator + TaskInstance architecture. 6 task families, real code mutations, parallel execution, task audit. Completed as part of A13 rework, not deferred to Phase D. |
 | 2026-04-10 | **Quality over cost for first-time doc generation** | Initial generation should read generously — no token budget constraint on file reading. The AST skeleton eliminates enumeration (LLM doesn't discover what exists) but for understanding patterns/decisions/rationale, reading more files = better docs. Cost savings are reaped by every agent session that uses the docs afterward, not during generation. |
 | 2026-04-10 | **Subsystem detection: hybrid directory + graph, LLM-refined, human-confirmed** | Directory structure as starting point (human-intuitive names), graph edges to validate/correct (split disconnected dirs, merge tightly-coupled ones), LLM to refine (merge/split/name based on semantic understanding), human confirms via chat-first checkpoint. Skip Leiden for now — add as fallback for flat repos if needed. |
 | 2026-04-10 | **B14+B17 merged** | Both consume structure.json + graph.json for the LLM orchestration layer. B14 (deep-dive prompts) and B17 (structural graph into subsystem mapping) are the same pipeline: graph → subsystem boundaries → per-subsystem deep-dive. Splitting them was the pre-AST plan. |

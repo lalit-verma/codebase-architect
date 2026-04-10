@@ -473,6 +473,19 @@ class TestWireCLI:
         assert result == 1
         assert "not found" in capsys.readouterr().err.lower()
 
+    def test_wire_missing_nano_no_side_effects(self, tmp_path):
+        """Failed wire (missing nano) must not create hook or settings."""
+        from pensieve.cli import main
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        main(["wire", "--repo", str(repo)])
+        # No hook script should be created
+        assert not (repo / ".claude" / "hooks" / "pensieve-pretooluse.sh").exists()
+        # No settings.json should be created
+        assert not (repo / ".claude" / "settings.json").exists()
+        # No CLAUDE.md should be created
+        assert not (repo / "CLAUDE.md").exists()
+
     def test_wire_success(self, capsys, tmp_path):
         from pensieve.cli import main
         repo = tmp_path / "repo"

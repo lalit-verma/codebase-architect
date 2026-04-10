@@ -63,14 +63,16 @@ class TestHelp:
         assert "usage" in captured.out.lower()
         assert "code pensieve" in captured.out.lower()
 
-    def test_help_mentions_phase_a_scaffolding(self, capsys):
-        """Help epilog should mention this is Phase A scaffolding so users
-        understand the CLI is intentionally minimal."""
+    def test_help_lists_subcommands(self, capsys):
+        """Help should list the main subcommands."""
         with pytest.raises(SystemExit):
             main(["--help"])
 
         captured = capsys.readouterr()
-        assert "phase a" in captured.out.lower()
+        assert "scan" in captured.out.lower()
+        assert "analyze" in captured.out.lower()
+        assert "wire" in captured.out.lower()
+        assert "benchmark" in captured.out.lower()
 
 
 class TestUnknownCommand:
@@ -145,3 +147,29 @@ class TestAnalyzeCommand:
         result = main(["analyze", bad])
         assert result == 1
         assert "not a directory" in capsys.readouterr().err
+
+    def test_structure_without_graph_rescans(self, capsys, tmp_path):
+        """If structure.json exists but graph.json is missing, analyze
+        should rescan instead of crashing with FileNotFoundError."""
+        import json as json_mod
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        # Create structure.json but NOT graph.json
+        (ad / "structure.json").write_text(json_mod.dumps({
+            "repo_root": str(repo), "files": [], "errors": [],
+            "extractor_version": "test",
+        }))
+        # Create a source file so scan has something to find
+        (repo / "main.py").write_text("def main(): pass\n")
+
+        # This should NOT crash — it should rescan and then fail
+        # at the proposal step (no LLM available in tests), but
+        # the point is it doesn't raise FileNotFoundError.
+        # We just verify it gets past stage 1 without crashing.
+        # It will fail at stage 2 (proposal needs LLM) — that's fine.
+        result = main(["analyze", str(repo)])
+        # Should have rescanned (graph was missing)
+        captured = capsys.readouterr()
+        assert "Scanning repo" in captured.out

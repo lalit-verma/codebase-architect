@@ -1,19 +1,15 @@
 """Code Pensieve CLI entry point.
 
-Phase A scaffolding (milestone A2). The CLI is wired with `--version`
-and `--help` but has no subcommands yet. Subcommands land in subsequent
-milestones:
+Subcommands:
+  pensieve scan <repo>           — AST extraction → structure.json + graph.json
+  pensieve analyze <repo>        — full Layer 2 pipeline → subsystem docs + synthesis
+  pensieve wire --repo <path>    — inline nano into CLAUDE.md + install hook
+  pensieve benchmark generate    — generate repo-aware benchmark tasks
+  pensieve benchmark run         — run benchmark (generate or load → execute → report)
+  pensieve hook install/uninstall — manage PreToolUse hook directly
 
-  - A3:    `pensieve hook install` / `pensieve hook uninstall`
-  - A6-A12: `pensieve benchmark run`
-  - B12:   `pensieve scan <repo>`
-  - C11:   `pensieve wire <platform> [--multi-repo]`
-  - D1:    `pensieve serve` (MCP server)
-
-When you add a new subcommand, register it in `_build_parser` and
-implement a handler. Keep the dispatch table in `main` flat and
-explicit; subcommands should be discoverable by reading this file
-top-to-bottom.
+Dispatch table in `main` is flat and explicit. Subcommands are
+discoverable by reading this file top-to-bottom.
 """
 
 from __future__ import annotations
@@ -27,9 +23,6 @@ from pensieve import __version__
 def _build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser.
 
-    Subparsers are registered here as we add subcommands. At A2 there
-    are none — `pensieve` with no args prints help, `pensieve --version`
-    prints the version.
     """
     parser = argparse.ArgumentParser(
         prog="pensieve",
@@ -38,11 +31,6 @@ def _build_parser() -> argparse.ArgumentParser:
             "structural context from a codebase and wires it into "
             "coding agents (Claude Code, Codex, Cursor) for "
             "cost-measured, harness-enforced context delivery."
-        ),
-        epilog=(
-            "Phase A scaffolding. Subcommands land in upcoming "
-            "milestones. See PLAN.md in the project root for the build "
-            "plan."
         ),
     )
     parser.add_argument(
@@ -594,13 +582,23 @@ def _cmd_analyze(args) -> int:
     graph_path = output_dir / "graph.json"
 
     # --- Stage 1: Scan (if needed) ---
-    if not structure_path.exists():
+    # Rescan if either structure.json or graph.json is missing.
+    # Both are required for profiling and subsystem detection.
+    if not structure_path.exists() or not graph_path.exists():
         _log("[1/5] Scanning repo...")
         result = scan_repo(repo_root, output_dir=output_dir)
         s = result.stats
         _log(f"  scanned {s['total_files']} files ({s['extracted']} extracted, {s['cached']} cached)")
     else:
-        _log("[1/5] Scan: using existing structure.json")
+        _log("[1/5] Scan: using existing structure.json + graph.json")
+
+    # Verify both files exist after scan
+    if not structure_path.exists():
+        print("pensieve analyze: scan failed to produce structure.json", file=sys.stderr)
+        return 1
+    if not graph_path.exists():
+        print("pensieve analyze: scan failed to produce graph.json", file=sys.stderr)
+        return 1
 
     # --- Stage 2: Profile directories + propose subsystems ---
     _log("[2/5] Profiling directories and proposing subsystems...")
@@ -693,20 +691,23 @@ def _cmd_wire(args) -> int:
         print(f"Hook:     {hook_result.get('settings', 'unknown')}", flush=True)
         return 0
 
-    # Wire: nano → CLAUDE.md + hook install
+    # Check nano exists BEFORE doing anything — wire is all-or-nothing.
+    nano_path = repo_root / "agent-docs" / "agent-context-nano.md"
+    if not nano_path.exists():
+        print(
+            "pensieve wire: agent-docs/agent-context-nano.md not found.\n"
+            "  Run `pensieve analyze` first to generate it.\n"
+            "  No changes made to the repo.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Both operations: nano → CLAUDE.md + hook install
     nano_result = wire_nano_to_claudemd(repo_root)
     hook_result = install_hook(repo_root)
 
     print(f"Nano:     {nano_result['nano']} -> CLAUDE.md {nano_result['claudemd']}", flush=True)
     print(f"Hook:     script={hook_result['script']}, settings={hook_result['settings']}", flush=True)
-
-    if nano_result["nano"] == "not_found":
-        print(
-            "  WARNING: agent-docs/agent-context-nano.md not found.\n"
-            "  Run `pensieve analyze` first to generate it.",
-            file=sys.stderr,
-        )
-        return 1
 
     return 0
 
