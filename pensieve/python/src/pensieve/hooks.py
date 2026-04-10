@@ -27,15 +27,75 @@ from pathlib import Path
 HOOK_SCRIPT = '''\
 #!/bin/bash
 # Code Pensieve PreToolUse hook for Claude Code.
-# Fires before every Glob/Grep. Injects a reminder via
-# hookSpecificOutput.additionalContext when agent-docs exists.
+# Fires before every Glob/Grep. Provides path-aware hints from
+# route-index.json and logs telemetry to hook-telemetry.jsonl.
 # Reference: https://code.claude.com/docs/en/hooks
 
-if [ -f agent-docs/agent-context-nano.md ]; then
-  cat <<'HOOKEOF'
-{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","additionalContext":"Codebase context already loaded in CLAUDE.md (nano-digest). For deeper context: Explore subagent on agent-docs/agent-context.md. Never read agent-docs/ from main thread (triggers long-context fallback)."}}
-HOOKEOF
+# Exit early if no agent-docs
+if [ ! -f agent-docs/agent-context-nano.md ]; then
+  exit 0
 fi
+
+# Read stdin (tool input JSON from Claude Code)
+INPUT=$(cat /dev/stdin 2>/dev/null || echo "{}")
+TOOL_NAME=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || echo "")
+SESSION_ID=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null || echo "")
+TOOL_INPUT=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); ti=d.get('tool_input',{}); print(ti.get('pattern','') or ti.get('path','') or ti.get('command',''))" 2>/dev/null || echo "")
+
+# Default hint
+HINT="Codebase context in CLAUDE.md (nano-digest). For deeper context: Explore subagent on agent-docs/agent-context.md. Never read agent-docs/ from main thread."
+HINT_TYPE="fallback"
+TARGET_DOC="agent-docs/agent-context.md"
+
+# Try path-aware routing from route-index.json
+if [ -f agent-docs/route-index.json ] && command -v python3 &>/dev/null; then
+  ROUTE_RESULT=$(python3 -c "
+import json, sys
+try:
+    with open('agent-docs/route-index.json') as f:
+        idx = json.load(f)
+    query = sys.argv[1] if len(sys.argv) > 1 else ''
+    for route in idx.get('routes', []):
+        if route['match_type'] == 'directory_prefix' and query.startswith(route['pattern']):
+            print(json.dumps({'hint': route['hint'], 'doc': route['doc_path'], 'subsystem': route['subsystem']}))
+            sys.exit(0)
+    print(json.dumps({'hint': idx.get('fallback_hint', ''), 'doc': 'agent-docs/agent-context.md', 'subsystem': ''}))
+except Exception:
+    print(json.dumps({'hint': '', 'doc': '', 'subsystem': ''}))
+" "$TOOL_INPUT" 2>/dev/null)
+
+  if [ -n "$ROUTE_RESULT" ]; then
+    ROUTED_HINT=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('hint',''))" 2>/dev/null || echo "")
+    ROUTED_DOC=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('doc',''))" 2>/dev/null || echo "")
+    if [ -n "$ROUTED_HINT" ]; then
+      HINT="$ROUTED_HINT. See $ROUTED_DOC for details."
+      HINT_TYPE="routed"
+      TARGET_DOC="$ROUTED_DOC"
+    fi
+  fi
+fi
+
+# Log telemetry event (append-only JSONL)
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown")
+python3 -c "
+import json, sys
+event = {
+    'timestamp': sys.argv[1],
+    'event': 'hint_shown',
+    'tool_name': sys.argv[2],
+    'query': sys.argv[3][:200],
+    'hint_type': sys.argv[4],
+    'target_doc': sys.argv[5],
+    'session_id': sys.argv[6],
+}
+with open('agent-docs/hook-telemetry.jsonl', 'a') as f:
+    f.write(json.dumps(event) + '\\n')
+" "$TIMESTAMP" "$TOOL_NAME" "$TOOL_INPUT" "$HINT_TYPE" "$TARGET_DOC" "$SESSION_ID" 2>/dev/null
+
+# Output the hook response
+cat <<HOOKEOF
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","additionalContext":"$HINT"}}
+HOOKEOF
 exit 0
 '''
 

@@ -1258,3 +1258,69 @@ def save_synthesis(
             paths.append(path)
 
     return paths
+
+
+# ---------------------------------------------------------------------------
+# Bx1: Route index generation
+# ---------------------------------------------------------------------------
+
+
+def generate_route_index(
+    subsystem_map: SubsystemMap,
+    output_dir: Path,
+) -> Path:
+    """Generate agent-docs/route-index.json from a subsystem map.
+
+    The route index maps file paths, directory prefixes, and patterns
+    to the relevant agent-docs files. The PreToolUse hook uses this to
+    provide path-aware hints when the agent runs Glob/Grep.
+
+    Structure:
+      {
+        "version": 1,
+        "routes": [
+          {
+            "match_type": "directory_prefix",
+            "pattern": "backend/open_webui/routers",
+            "subsystem": "API Routers",
+            "doc_path": "agent-docs/subsystems/api_routers.md",
+            "hint": "API Routers subsystem — see agent-docs/subsystems/api_routers.md"
+          },
+          ...
+        ],
+        "fallback_hint": "See agent-docs/agent-context.md for full codebase context."
+      }
+    """
+    routes: list[dict] = []
+
+    for sub in subsystem_map.subsystems:
+        # Sanitize name for doc path (must match save_subsystem_doc)
+        safe_name = sub.name.lower().replace(" ", "_").replace("/", "_")
+        safe_name = "".join(c for c in safe_name if c.isalnum() or c in ("_", "-"))
+        doc_path = f"agent-docs/subsystems/{safe_name}.md"
+
+        for directory in sub.directories:
+            d = directory.rstrip("/")
+            routes.append({
+                "match_type": "directory_prefix",
+                "pattern": d,
+                "subsystem": sub.name,
+                "doc_path": doc_path,
+                "hint": f"{sub.name}: {sub.role}",
+            })
+
+    index = {
+        "version": 1,
+        "routes": routes,
+        "fallback_hint": (
+            "Codebase context in CLAUDE.md (nano-digest). "
+            "For deeper context: agent-docs/agent-context.md"
+        ),
+    }
+
+    output_path = output_dir / "route-index.json"
+    output_path.write_text(
+        json.dumps(index, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return output_path

@@ -1,6 +1,6 @@
 # Code Pensieve — Build Plan
 
-> **Status:** Phase A: A1–A12b complete, A13 provisional; Phase B: Layer 1 (B1–B13) complete, Layer 2 (B14) code-complete awaiting real-repo validation
+> **Status:** Phase A: A1–A12b complete, A13 provisional; Phase B: Layer 1 (B1–B13) complete, Layer 2 RESET — v1-shaped output from Layer 1 evidence (B14 done, B15-B16 next)
 > **Last updated:** 2026-04-10
 > **Owners:** Lalit + Claude (collaborative build)
 
@@ -110,7 +110,7 @@ new code). Everything else either supports these or is for human reference.
 | Phase | Goal | Status |
 |---|---|---|
 | **A** | Hooks + auto-benchmark | A1–A12b complete. A13 provisional (infra validated, awaiting v2 docs). A14–A15 blocked on A13. |
-| **B** | AST extraction (Layer 1 + integration into Layer 2) | Layer 1 complete (B1–B13). Layer 2 B14 code-complete (5 sub-steps + CLI + wire). B15–B16 next (validation + benchmark). |
+| **B** | AST extraction (Layer 1 + Layer 2 doc generation) | Layer 1 complete (B1–B13). Layer 2 RESET: v1-shaped output from Layer 1 evidence (B14 done). B15–B16 next. |
 | **C** | Multi-repo support | not started |
 | **D** | MCP, multi-platform, polish, distribution | not started |
 
@@ -625,73 +625,46 @@ foundation that multi-repo cross-edge detection needs in Phase C.
   and Java package-qualified imports have lower resolution accuracy.
 
   47 tests. 745/745 total pass.)*
-- [ ] **B14.** *(merged with B17, in progress)* Build the Layer 2 LLM
-  orchestration pipeline: graph-driven subsystem detection → LLM-directed
-  file reading → subsystem documentation. *(B14a complete: directory
-  profiler in `src/pensieve/context.py`. Reads structure.json + graph.json,
-  computes per-directory profiles with file counts, language breakdown,
-  internal edge density, outgoing/incoming edge targets, key symbols,
-  auto-generated/test flags. Auto-collapses single-child directories.
-  `format_profiles_for_llm()` produces concise structural brief.
-  Validated on socrates repo — 30 directories profiled with clear
-  architectural signals. 18 tests. B14b complete: `propose_subsystems()`
-  feeds profiles to LLM via --json-schema, returns SubsystemMap with
-  named subsystems, directory assignments, roles, rationale. Defensive
-  error handling on all paths. `format_subsystem_map()` for human
-  checkpoint. 29 tests. B14c complete: `build_subsystem_brief()` builds
-  per-subsystem structural brief from structure.json (file list with
-  signatures, imports, call edges, rationale comments). 
-  `select_files_for_subsystem()` feeds brief to LLM via --json-schema,
-  LLM picks files to read in full with reasons. No budget constraint.
-  Validated on socrates repo — Data Models subsystem (25 files, 910-line
-  brief), LLM selected 14 files with architecturally specific reasons
-  (db.py as foundation, users.py as central entity, chats.py as pattern
-  exemplar, oauth_sessions.py for encryption pattern). 39 tests.
-  B14d complete: `generate_subsystem_doc()` feeds structural brief +
-  selected file contents to LLM via `claude -p --output-format text`.
-  System prompt: 10 required sections adapted from v1 template
-  (Modification Guide emphasized as most agent-valuable). File content
-  truncated at 15K chars/file. `save_subsystem_doc()` writes to
-  agent-docs/subsystems/{name}.md. 49 tests.
-  B14e complete: `synthesize_docs()` — three separate LLM calls
-  producing patterns.md, agent-context.md (≤120 lines),
-  agent-context-nano.md (≤40 lines). Each call gets directory
-  profiles + subsystem doc summaries. `save_synthesis()` writes
-  artifacts. Independent error handling per call. 56 tests.
-  CLI orchestration: `pensieve analyze <path>` runs the full 5-stage
-  pipeline (scan → profile → propose → generate → synthesize) with
-  per-stage progress logging. `--model` flag for LLM model selection.
-  Per-subsystem failure handling (one failed doc doesn't stop others).
-  `pensieve wire --repo <path>` inlines nano-digest into CLAUDE.md
-  (with `<!-- pensieve:nano:start/end -->` markers for idempotent
-  replacement) + installs PreToolUse hook. `--unwire` reverses both.
-  Full CLI tool chain: scan → analyze → wire → benchmark.
-  855/855 total pass.
-  STATUS: B14 code-complete including CLI and wiring. Awaiting
-  real-repo validation (B15).)*
-  Full pipeline:
-  1. **Subsystem detection (deterministic):** Directory-based clustering
-     validated by graph edges (split disconnected dirs, merge tightly-
-     coupled ones). Produces candidate subsystem list with structural
-     briefs (file list, signatures, imports, exports, call edges,
-     rationale comments, cross-subsystem dependencies).
-  2. **LLM refinement:** LLM reads structural briefs + graph summary,
-     refines boundaries (merge/split/rename). Then picks files to read
-     in full per subsystem — no budget constraint, quality over cost.
-  3. **Human checkpoint:** Chat-first confirmation of subsystem map.
-  4. **LLM deep-dive:** Per confirmed subsystem, LLM reads structural
-     brief + requested file contents. Produces subsystem document
-     (adapted from v1 template: boundaries, structure, contracts,
-     flows, dependencies, design decisions, patterns, modification
-     guide).
-  5. **Synthesis:** All subsystem docs + graph → patterns.md,
-     agent-context.md, agent-context-nano.md.
-- [ ] **B15.** Validate quality on the calibration repo: LLM-judged
-  subsystem doc quality must match or beat pre-Phase-B output.
-- [ ] **B16.** Run auto-benchmark from Phase A end state on the
-  calibration repo. Phase 2 token cost should drop dramatically; quality
-  should be flat or up.
-- ~~**B17.**~~ *(merged into B14)*
+- [x] **B14.** *(RESET 2026-04-10)* Phase B Layer 2 architecture reset.
+  Old Layer 2 (custom output shape in context.py) replaced with
+  v1-framework-shaped output grounded by Layer 1 evidence.
+
+  **What was kept from old B14:**
+  - B14a: directory profiler (context.py `profile_directories`)
+  - B14b: subsystem proposer (context.py `propose_subsystems`)
+  - B14c: file selector (context.py `select_files_for_subsystem`)
+  - Checkpointing (checkpoint.py)
+  - CLI: `pensieve analyze`, `pensieve wire`, timeout controls,
+    parallelism for stages 3+4
+  - Bx1 route-index generation, Bx5 hook telemetry
+
+  **What was replaced:**
+  - Stage 4: `generate_subsystem_doc` → now in `docgen.py`, v1 template
+    shape (≤150 lines, boundaries, evidence anchors, modification guide)
+  - Stage 5: `synthesize_docs` → now `synthesize_v1_docs` in `docgen.py`,
+    produces the full v1 artifact set:
+    - system-overview.md (≤200 lines)
+    - patterns.md (recipe-shaped)
+    - agent-brief.md (≤100 lines)
+    - agent-context.md (≤120 lines)
+    - agent-context-nano.md (≤40 lines)
+    - routing-map.md (deterministic, YAML)
+
+  **What was deprecated:**
+  - context.py `_DEEPDIVE_SYSTEM_PROMPT` (old stage 4)
+  - context.py `synthesize_docs`, `save_synthesis`, `SynthesisResult`
+    (old stage 5 — still in file but not called by CLI)
+
+  New module: `src/pensieve/docgen.py`. 10 tests. 903/903 total pass.
+
+  Pipeline: scan → profile → propose → select files → generate
+  v1-shaped subsystem docs → synthesize v1 artifact set → route-index.
+
+- [ ] **B15.** Validate quality on the calibration repo: v1-shaped docs
+  must be agent-useful and benchmarkable.
+- [ ] **B16.** Run auto-benchmark with v2-generated v1-shaped docs.
+  Compare to v1 original docs and to baseline (no docs).
+- ~~**B17.**~~ *(merged into B14, then reset)*
 
 ### Proceed criterion (Phase B → Phase C)
 
@@ -762,29 +735,19 @@ foundation that multi-repo cross-edge detection needs in Phase C.
   relative to their parent (e.g., `open_webui.env` resolves to
   `backend/open_webui/env.py`). Socrates repo: 12 → 1938 edges.
 
-- **2026-04-10 (B14):** Layer 2 LLM orchestration pipeline built in
-  5 sub-steps, all in `src/pensieve/context.py`:
-  - B14a: Directory profiler (`profile_directories`) — deterministic
-    directory profiles with edge density, coupling, flags
-  - B14b: Subsystem proposer (`propose_subsystems`) — LLM proposes
-    boundaries from directory profiles via --json-schema
-  - B14c: File selector (`select_files_for_subsystem`) — LLM picks
-    key files per subsystem from structural brief
-  - B14d: Deep-dive generator (`generate_subsystem_doc`) — LLM reads
-    brief + selected file contents → subsystem markdown document
-  - B14e: Synthesis (`synthesize_docs`) — three LLM calls producing
-    patterns.md, agent-context.md (≤120 lines), agent-context-nano.md
-    (≤40 lines) from all subsystem docs
-  CLI: `pensieve analyze <path>` orchestrates all 5 stages with
-  per-stage progress logging. `pensieve wire --repo <path>` inlines
-  nano into CLAUDE.md + installs hook. `--unwire` reverses.
-  Design decisions: quality over cost for generation (no file-reading
-  budget), LLM-directed file selection (not centrality heuristic),
-  hybrid directory+graph subsystem detection (Leiden deferred),
-  approach E for boundary detection (multi-signal + LLM judgment).
-  855 tests total. Validated subsystem proposal + file selection on
-  socrates repo (11 subsystems proposed, 14 files selected for Data
-  Models subsystem with architecturally specific reasons).
+- **2026-04-10 (B14 original):** Built 5-sub-step pipeline in context.py
+  (profiler, proposer, file selector, doc generator, synthesis). CLI:
+  analyze + wire. Validated on socrates. Then RESET.
+
+- **2026-04-10 (B14 RESET):** Layer 2 architecture replaced. Old custom
+  output shape (3-artifact synthesis) deprecated. New: v1-framework-shaped
+  output grounded by Layer 1 evidence. New module: `src/pensieve/docgen.py`.
+  Kept from old B14: directory profiler, subsystem proposer, file
+  selector, checkpointing, CLI, parallelism, Bx route-index/telemetry.
+  Replaced: stage 4 (subsystem docs now v1 template, ≤150 lines) and
+  stage 5 (full v1 artifact set: system-overview, patterns, agent-brief,
+  agent-context, nano, routing-map). routing-map.md is deterministic
+  (YAML, no LLM). 903 tests total.
 
 ---
 
@@ -809,12 +772,12 @@ hook ideas. We only implement the highest-leverage pieces:
 
 ### Milestones
 
-- [ ] **Bx1.** Build a lightweight route index from generated context.
-  Compile a small machine-readable map from:
-  - directory/file keywords → subsystem docs
-  - common task patterns (`add handler`, `add test`, `add model`,
-    `fix bug`, `trace ownership`) → pattern docs / exemplar files
-  Output: `agent-docs/route-index.json`.
+- [x] **Bx1.** Build a lightweight route index from generated context.
+  *(2026-04-10: `generate_route_index()` in context.py. Maps directory
+  prefixes to subsystem docs via route-index.json. Generated as part
+  of `pensieve analyze` pipeline. Schema: version, routes[] with
+  match_type/pattern/subsystem/doc_path/hint, fallback_hint.
+  4 tests. 893/893 total pass.)*
 
 - [ ] **Bx2.** Add path-aware prehook routing.
   When the agent is about to use broad search (`Glob`, `Grep`) and the
@@ -832,13 +795,14 @@ hook ideas. We only implement the highest-leverage pieces:
   is opened. Intervene once with a direct rerouting hint. Do not repeat
   the same hint aggressively.
 
-- [ ] **Bx5.** Add hook telemetry.
-  Log:
-  - hint shown
-  - hint type
-  - doc/path pointed to
-  - whether that doc was later consulted
-  - rough search-thrash count before first useful read
+- [x] **Bx5.** Add hook telemetry.
+  *(2026-04-10: Hook script updated to read stdin (tool_name, session_id,
+  tool_input), consult route-index.json for path-aware routing, and
+  append JSONL events to agent-docs/hook-telemetry.jsonl. Event schema:
+  timestamp, event ("hint_shown"), tool_name, query, hint_type
+  ("routed"/"fallback"), target_doc, session_id. Consultation tracking
+  deferred — correlate telemetry with transcript_path post-run.
+  5 tests including E2E hook invocation. 893/893 total pass.)*
   Output: append-only telemetry file for benchmark analysis.
 
 - [ ] **Bx6.** Benchmark the adaptive hook layer.
@@ -1062,7 +1026,8 @@ and users adopt it.
 | 2026-04-10 | **Subsystem detection: hybrid directory + graph, LLM-refined, human-confirmed** | Directory structure as starting point (human-intuitive names), graph edges to validate/correct (split disconnected dirs, merge tightly-coupled ones), LLM to refine (merge/split/name based on semantic understanding), human confirms via chat-first checkpoint. Skip Leiden for now — add as fallback for flat repos if needed. |
 | 2026-04-10 | **B14+B17 merged** | Both consume structure.json + graph.json for the LLM orchestration layer. B14 (deep-dive prompts) and B17 (structural graph into subsystem mapping) are the same pipeline: graph → subsystem boundaries → per-subsystem deep-dive. Splitting them was the pre-AST plan. |
 | 2026-04-10 | **Auto-updating agent-docs (D12)** | Docs become stale on every merge. Two-level refresh: structural (deterministic, near-zero cost on changed files) and doc-level (LLM re-evaluates affected subsystems when structural diff exceeds threshold). Deferred to Phase D. |
-| 2026-04-10 | **A13 provisional, defer full calibration to post-B14** | Benchmark infrastructure is validated (generation, execution, judging, parallelism all work). But benchmarking v1 agent-docs doesn't test the v2 pipeline. The right sequence: finish B14 (generate v2 docs from AST pipeline) → delete v1 docs → re-benchmark with v2 docs → compare to teammate. Measuring v1 docs tells us nothing about whether v2 is better. |
+| 2026-04-10 | **A13 provisional, defer full calibration to post-B14** | Benchmark infrastructure is validated. But benchmarking v1 agent-docs doesn't test the v2 pipeline. The right sequence: finish B14 → re-benchmark with generated docs → compare to teammate. |
+| 2026-04-10 | **Phase B Layer 2 RESET** | Old Layer 2 (custom output shape, 3-artifact synthesis) replaced with v1-framework-shaped output grounded by Layer 1 evidence. New module: `docgen.py`. Output: system-overview, patterns, agent-brief, agent-context, nano, routing-map, subsystem docs — all v1-shaped. Layer 1 (extractors, graph) and infrastructure (CLI, checkpoints, parallelism, benchmarks, Bx) preserved. Old synthesis code in context.py deprecated but not deleted. |
 
 ---
 

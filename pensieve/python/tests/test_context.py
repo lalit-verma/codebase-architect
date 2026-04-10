@@ -34,6 +34,7 @@ from pensieve.context import (
     propose_subsystems,
     format_subsystem_map,
     save_subsystem_doc,
+    generate_route_index,
     save_synthesis,
     synthesize_docs,
     select_files_for_subsystem,
@@ -1336,3 +1337,81 @@ class TestAnalyzeParallelEquivalence:
         assert results["AlsoGood"].error is None
         # Bad should have an error (either from the mock or caught)
         assert results["Bad"].error is not None or len(results["Bad"].files) == 0
+
+
+# ---------------------------------------------------------------------------
+# Bx1: Route index
+# ---------------------------------------------------------------------------
+
+
+class TestRouteIndex:
+
+    def test_generates_route_index(self, tmp_path):
+        smap = SubsystemMap(
+            subsystems=[
+                SubsystemProposal(
+                    name="API Routers",
+                    directories=["src/routers"],
+                    role="HTTP handlers",
+                    rationale="test",
+                ),
+                SubsystemProposal(
+                    name="Data Models",
+                    directories=["src/models", "src/db"],
+                    role="ORM layer",
+                    rationale="test",
+                ),
+            ],
+            excluded=[],
+        )
+        path = generate_route_index(smap, tmp_path)
+
+        assert path.exists()
+        assert path.name == "route-index.json"
+
+        data = json.loads(path.read_text())
+        assert data["version"] == 1
+        assert len(data["routes"]) == 3  # 1 for routers + 2 for models
+        assert "fallback_hint" in data
+
+    def test_route_entries_have_required_fields(self, tmp_path):
+        smap = SubsystemMap(
+            subsystems=[
+                SubsystemProposal(
+                    name="Core", directories=["src"],
+                    role="core logic", rationale="test",
+                ),
+            ],
+            excluded=[],
+        )
+        generate_route_index(smap, tmp_path)
+        data = json.loads((tmp_path / "route-index.json").read_text())
+
+        route = data["routes"][0]
+        assert route["match_type"] == "directory_prefix"
+        assert route["pattern"] == "src"
+        assert route["subsystem"] == "Core"
+        assert route["doc_path"].startswith("agent-docs/subsystems/")
+        assert route["hint"] != ""
+
+    def test_directory_trailing_slash_stripped(self, tmp_path):
+        smap = SubsystemMap(
+            subsystems=[
+                SubsystemProposal(
+                    name="Utils", directories=["src/utils/"],
+                    role="shared", rationale="test",
+                ),
+            ],
+            excluded=[],
+        )
+        generate_route_index(smap, tmp_path)
+        data = json.loads((tmp_path / "route-index.json").read_text())
+
+        assert data["routes"][0]["pattern"] == "src/utils"
+
+    def test_empty_subsystem_map(self, tmp_path):
+        smap = SubsystemMap(subsystems=[], excluded=[])
+        path = generate_route_index(smap, tmp_path)
+        data = json.loads(path.read_text())
+        assert data["routes"] == []
+        assert "fallback_hint" in data

@@ -578,18 +578,18 @@ def _cmd_analyze(args) -> int:
     from pensieve.context import (
         FileSelection,
         profile_directories,
-        format_profiles_for_llm,
         propose_subsystems,
-        format_subsystem_map,
-        build_subsystem_brief,
         select_files_for_subsystem,
-        generate_subsystem_doc,
-        save_subsystem_doc,
-        synthesize_docs,
-        save_synthesis,
-        SubsystemDoc,
+        generate_route_index,
         SubsystemProposal,
         SubsystemMap,
+    )
+    from pensieve.docgen import (
+        SubsystemDoc,
+        generate_subsystem_doc,
+        save_subsystem_doc,
+        run_discover,
+        run_synthesize,
     )
     from pensieve.checkpoint import AnalyzeCheckpoint
 
@@ -680,6 +680,27 @@ def _cmd_analyze(args) -> int:
         _log(f"    - {s.name} ({', '.join(s.directories)})")
     if smap.excluded:
         _log(f"  {len(smap.excluded)} directories excluded")
+
+    # Run v1 discover prompt for system-overview.md + .analysis-state.md
+    from pensieve.context import format_profiles_for_llm
+    structural_context = format_profiles_for_llm(profile)
+    discover_result = run_discover(
+        repo_root, structural_context,
+        model=model, timeout_seconds=proposal_timeout,
+    )
+    if discover_result.error:
+        _log(f"  discover prompt: WARNING — {discover_result.error}")
+    else:
+        if discover_result.system_overview:
+            (output_dir / "system-overview.md").write_text(
+                discover_result.system_overview + "\n", encoding="utf-8",
+            )
+            _log(f"  -> {output_dir / 'system-overview.md'}")
+        if discover_result.analysis_state:
+            (output_dir / ".analysis-state.md").write_text(
+                discover_result.analysis_state + "\n", encoding="utf-8",
+            )
+            _log(f"  -> {output_dir / '.analysis-state.md'}")
 
     # --- Stage 3: Select files per subsystem ---
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -811,24 +832,29 @@ def _cmd_analyze(args) -> int:
     failed = [d for d in docs if d and d.error]
     _log(f"  {len(successful)} docs generated, {len(failed)} failed")
 
-    # --- Stage 5: Synthesize top-level artifacts ---
+    # --- Stage 5: Synthesize (v1 analyze-synthesize prompt) ---
     if not successful:
         print("pensieve analyze: no subsystem docs generated, cannot synthesize.", file=sys.stderr)
         return 1
 
-    _log(f"[5/5] Synthesizing patterns.md, agent-context.md, agent-context-nano.md...")
-    synthesis = synthesize_docs(successful, profile, model=model, timeout_seconds=synthesis_timeout)
-    paths = save_synthesis(synthesis, output_dir)
-    for p in paths:
-        _log(f"  -> {p}")
-    if synthesis.errors:
-        for err in synthesis.errors:
+    _log(f"[5/5] Running v1 synthesis (agent-context, nano, patterns, etc.)...")
+    synth_result = run_synthesize(
+        repo_root, structural_context=structural_context,
+        model=model, timeout_seconds=synthesis_timeout,
+    )
+    if synth_result.errors:
+        for err in synth_result.errors:
             _log(f"  WARNING: {err}")
+    else:
+        _log(f"  synthesis complete ({len(synth_result.raw_output)} chars)")
+
+    # --- Route index (Bx1) ---
+    route_path = generate_route_index(smap, output_dir)
+    _log(f"  -> {route_path}")
 
     # --- Summary ---
     _log(f"\nAnalysis complete:")
     _log(f"  subsystems: {len(successful)}/{len(smap.subsystems)}")
-    _log(f"  artifacts: {len(paths)} top-level files")
     _log(f"  output: {output_dir}")
 
     return 0
