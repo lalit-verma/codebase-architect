@@ -1,15 +1,15 @@
 """Code Pensieve CLI entry point.
 
 Subcommands:
-  pensieve scan <repo>           — AST extraction → structure.json + graph.json
-  pensieve analyze <repo>        — full Layer 2 pipeline → subsystem docs + synthesis
+  pensieve scan <repo>           — AST extraction → structure.json + graph.json + structural-profiles.md
   pensieve wire --repo <path>    — inline nano into CLAUDE.md + install hook
   pensieve benchmark generate    — generate repo-aware benchmark tasks
   pensieve benchmark run         — run benchmark (generate or load → execute → report)
   pensieve hook install/uninstall — manage PreToolUse hook directly
 
-Dispatch table in `main` is flat and explicit. Subcommands are
-discoverable by reading this file top-to-bottom.
+Doc generation is done by the v1 slash commands (/analyze-discover,
+/analyze-deep-dive, /analyze-synthesize) which consume the structural
+data produced by `pensieve scan`.
 """
 
 from __future__ import annotations
@@ -70,48 +70,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output directory (default: <repo>/agent-docs)",
     )
 
-    # --- analyze subcommand (B14) ---
-    analyze_parser = subparsers.add_parser(
-        "analyze",
-        help="Generate agent-docs from repo structure (full pipeline)",
+    # --- brief subcommand ---
+    brief_parser = subparsers.add_parser(
+        "brief",
+        help="Generate a structural brief for a subsystem directory",
         description=(
-            "Run the full analysis pipeline: scan the repo, detect "
-            "subsystem boundaries, select key files per subsystem, "
-            "generate subsystem documentation, and synthesize "
-            "patterns.md, agent-context.md, and agent-context-nano.md. "
-            "Writes all output to agent-docs/."
+            "Produce a detailed structural brief for specific directories. "
+            "Shows all file signatures, internal dependencies, and external "
+            "coupling. Designed for deep-dive analysis of a subsystem. "
+            "Requires `pensieve scan` to have been run first."
         ),
     )
-    analyze_parser.add_argument(
-        "path", type=str, nargs="?", default=".",
-        help="Path to the repository root (default: current directory)",
+    brief_parser.add_argument(
+        "dirs", type=str, nargs="+",
+        help="One or more directory paths to include in the brief",
     )
-    analyze_parser.add_argument(
-        "--model", type=str, default="sonnet",
-        help="Model for LLM calls (default: sonnet)",
+    brief_parser.add_argument(
+        "--repo", type=str, default=".",
+        help="Repository root (default: current directory)",
     )
-    analyze_parser.add_argument(
-        "--proposal-timeout", type=int, default=300,
-        help="Timeout in seconds for subsystem proposal LLM call (default: 300)",
-    )
-    analyze_parser.add_argument(
-        "--selection-timeout", type=int, default=300,
-        help="Timeout in seconds for per-subsystem file selection LLM call (default: 300)",
-    )
-    analyze_parser.add_argument(
-        "--doc-timeout", type=int, default=300,
-        help="Timeout in seconds for per-subsystem doc generation LLM call (default: 300)",
-    )
-    analyze_parser.add_argument(
-        "--synthesis-timeout", type=int, default=300,
-        help="Timeout in seconds for each synthesis LLM call (default: 300)",
-    )
-    analyze_parser.add_argument(
-        "--analyze-parallelism", type=int, default=1,
-        help=(
-            "Number of subsystems to process concurrently in stages 3-4 "
-            "(default: 1 = sequential). Does not affect proposal or synthesis."
-        ),
+    brief_parser.add_argument(
+        "--output", type=str, default=None,
+        help="Write brief to file instead of stdout",
     )
 
     # --- wire subcommand ---
@@ -312,8 +292,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "scan":
         return _cmd_scan(args)
 
-    if args.command == "analyze":
-        return _cmd_analyze(args)
+    if args.command == "brief":
+        return _cmd_brief(args)
 
     if args.command == "wire":
         return _cmd_wire(args)
@@ -564,7 +544,64 @@ def _cmd_scan(args) -> int:
           f"failed: {s['failed']}")
     print(f"  → {result.structure_path}")
 
+    # Generate structural profiles for LLM consumption
+    actual_output_dir = result.structure_path.parent
+    graph_path = actual_output_dir / "graph.json"
+    if graph_path.exists():
+        from pensieve.context import format_structural_profiles, validate_structural_profile
+        profiles_md = format_structural_profiles(result.structure_path, graph_path)
+        validation_errors = validate_structural_profile(profiles_md)
+        if validation_errors:
+            print("  WARNING: structural profile validation errors:", file=sys.stderr)
+            for err in validation_errors:
+                print(f"    - {err}", file=sys.stderr)
+        profiles_path = actual_output_dir / "structural-profiles.md"
+        profiles_path.write_text(profiles_md, encoding="utf-8")
+        print(f"  → {profiles_path}")
+
     return 0 if s["failed"] == 0 else 1
+
+
+def _cmd_brief(args) -> int:
+    """Handle the `pensieve brief` subcommand."""
+    from pathlib import Path
+    from pensieve.context import format_subsystem_brief, validate_subsystem_brief
+
+    repo_root = Path(args.repo).resolve()
+    if not repo_root.is_dir():
+        print(f"pensieve brief: not a directory: {repo_root}", file=sys.stderr)
+        return 1
+
+    structure_path = repo_root / "agent-docs" / "structure.json"
+    graph_path = repo_root / "agent-docs" / "graph.json"
+
+    if not structure_path.exists():
+        print(
+            f"pensieve brief: no structure.json found.\n"
+            f"  Run `pensieve scan {repo_root}` first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    brief = format_subsystem_brief(
+        args.dirs, structure_path, graph_path,
+    )
+
+    validation_errors = validate_subsystem_brief(brief)
+    if validation_errors:
+        print("  WARNING: brief validation errors:", file=sys.stderr)
+        for err in validation_errors:
+            print(f"    - {err}", file=sys.stderr)
+
+    if args.output:
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(brief, encoding="utf-8")
+        print(f"  → {out_path}", flush=True)
+    else:
+        print(brief, flush=True)
+
+    return 0
 
 
 def _cmd_analyze(args) -> int:
@@ -678,26 +715,34 @@ def _cmd_analyze(args) -> int:
         _log(f"  {len(smap.excluded)} directories excluded")
 
     # Run v1 discover prompt for system-overview.md + .analysis-state.md
+    # Skip if both files already exist and checkpoint is valid
     from pensieve.context import format_profiles_for_llm
     structural_context = format_profiles_for_llm(profile)
-    discover_result = run_discover(
-        repo_root, structural_context,
-        subsystem_map=smap,
-        model=model, timeout_seconds=proposal_timeout,
-    )
-    if discover_result.error:
-        _log(f"  discover prompt: WARNING — {discover_result.error}")
+
+    overview_exists = (output_dir / "system-overview.md").exists()
+    state_exists = (output_dir / ".analysis-state.md").exists()
+
+    if overview_exists and state_exists and ckpt.validate(structure_path, graph_path):
+        _log(f"  discover: [reused] system-overview.md + .analysis-state.md exist")
     else:
-        if discover_result.system_overview:
-            (output_dir / "system-overview.md").write_text(
-                discover_result.system_overview + "\n", encoding="utf-8",
-            )
-            _log(f"  -> {output_dir / 'system-overview.md'}")
-        if discover_result.analysis_state:
-            (output_dir / ".analysis-state.md").write_text(
-                discover_result.analysis_state + "\n", encoding="utf-8",
-            )
-            _log(f"  -> {output_dir / '.analysis-state.md'}")
+        discover_result = run_discover(
+            repo_root, structural_context,
+            subsystem_map=smap,
+            model=model, timeout_seconds=proposal_timeout,
+        )
+        if discover_result.error:
+            _log(f"  discover prompt: WARNING — {discover_result.error}")
+        else:
+            if discover_result.system_overview:
+                (output_dir / "system-overview.md").write_text(
+                    discover_result.system_overview + "\n", encoding="utf-8",
+                )
+                _log(f"  -> {output_dir / 'system-overview.md'}")
+            if discover_result.analysis_state:
+                (output_dir / ".analysis-state.md").write_text(
+                    discover_result.analysis_state + "\n", encoding="utf-8",
+                )
+                _log(f"  -> {output_dir / '.analysis-state.md'}")
 
     # --- Stage 3: Select files per subsystem ---
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -834,32 +879,33 @@ def _cmd_analyze(args) -> int:
         print("pensieve analyze: no subsystem docs generated, cannot synthesize.", file=sys.stderr)
         return 1
 
-    _log(f"[5/5] Running v1 synthesis (agent-context, nano, patterns, etc.)...")
-    synth_result = run_synthesize(
-        repo_root, structural_context=structural_context,
-        model=model, timeout_seconds=synthesis_timeout,
-    )
-    if synth_result.errors:
-        for err in synth_result.errors:
-            _log(f"  WARNING: {err}")
+    # Check if all required artifacts already exist (checkpoint recovery)
+    _REQUIRED_ARTIFACTS = [
+        "agent-context.md", "agent-context-nano.md", "patterns.md",
+        "routing-map.md", "system-overview.md", "agent-brief.md",
+        "index.md", "agent-protocol.md",
+    ]
+    all_exist = all((output_dir / name).exists() for name in _REQUIRED_ARTIFACTS)
+
+    if all_exist and ckpt.validate(structure_path, graph_path):
+        _log(f"[5/5] Synthesis: [reused] all {len(_REQUIRED_ARTIFACTS)} artifacts exist")
     else:
-        _log(f"  synthesis complete ({len(synth_result.raw_output)} chars)")
+        _log(f"[5/5] Running v1 synthesis (agent-context, nano, patterns, etc.)...")
+        synth_result = run_synthesize(
+            repo_root, structural_context=structural_context,
+            model=model, timeout_seconds=synthesis_timeout,
+        )
+        if synth_result.errors:
+            for err in synth_result.errors:
+                _log(f"  WARNING: {err}")
+        else:
+            _log(f"  synthesis complete ({len(synth_result.raw_output)} chars)")
 
     # --- Route index (Bx1) ---
     route_path = generate_route_index(smap, output_dir)
     _log(f"  -> {route_path}")
 
     # --- Post-synthesis verification ---
-    _REQUIRED_ARTIFACTS = [
-        "agent-context.md",
-        "agent-context-nano.md",
-        "patterns.md",
-        "routing-map.md",
-        "system-overview.md",
-        "agent-brief.md",
-        "index.md",
-        "agent-protocol.md",
-    ]
     missing = [name for name in _REQUIRED_ARTIFACTS if not (output_dir / name).exists()]
     if missing:
         _log(f"\n  SYNTHESIS INCOMPLETE — missing required artifacts:")

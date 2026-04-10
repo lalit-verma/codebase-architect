@@ -1,7 +1,7 @@
 # Code Pensieve — Build Plan
 
-> **Status:** Phase A: A1–A12b complete, A13 provisional; Phase B: Layer 1 (B1–B13) complete, Layer 2 RESET — v1-shaped output from Layer 1 evidence (B14 done, B15-B16 next)
-> **Last updated:** 2026-04-10
+> **Status:** Phase A: A1–A12b complete, A13 provisional; Phase B: Layer 1 complete, Layer 2 = v1 prompts + Layer 1 evidence (pensieve scan → v1 slash commands). `pensieve analyze` removed.
+> **Last updated:** 2026-04-11
 > **Owners:** Lalit + Claude (collaborative build)
 
 A vessel for codebase memories. Coding agents draw from the store on demand
@@ -110,7 +110,7 @@ new code). Everything else either supports these or is for human reference.
 | Phase | Goal | Status |
 |---|---|---|
 | **A** | Hooks + auto-benchmark | A1–A12b complete. A13 provisional (infra validated, awaiting v2 docs). A14–A15 blocked on A13. |
-| **B** | AST extraction (Layer 1 + Layer 2 doc generation) | Layer 1 complete (B1–B13). Layer 2 RESET: v1-shaped output from Layer 1 evidence (B14 done). B15–B16 next. |
+| **B** | AST extraction + evidence for v1 doc generation | Layer 1 complete (B1–B13). Layer 2: v1 prompts + Layer 1 evidence. `pensieve scan` provides structural data, v1 slash commands generate docs. B15–B16 next. |
 | **C** | Multi-repo support | not started |
 | **D** | MCP, multi-platform, polish, distribution | not started |
 
@@ -625,46 +625,77 @@ foundation that multi-repo cross-edge detection needs in Phase C.
   and Java package-qualified imports have lower resolution accuracy.
 
   47 tests. 745/745 total pass.)*
-- [x] **B14.** *(RESET 2026-04-10)* Phase B Layer 2 architecture reset.
-  Old Layer 2 (custom output shape in context.py) replaced with
-  v1-framework-shaped output grounded by Layer 1 evidence.
+- [x] **B14.** *(RESET twice)* Phase B Layer 2 — final architecture.
 
-  **What was kept from old B14:**
-  - B14a: directory profiler (context.py `profile_directories`)
-  - B14b: subsystem proposer (context.py `propose_subsystems`)
-  - B14c: file selector (context.py `select_files_for_subsystem`)
-  - Checkpointing (checkpoint.py)
-  - CLI: `pensieve analyze`, `pensieve wire`, timeout controls,
-    parallelism for stages 3+4
-  - Bx1 route-index generation, Bx5 hook telemetry
+  **Architecture decision (2026-04-11):** v1 slash commands ARE the doc
+  generation pipeline. Pensieve provides the evidence layer underneath.
+  `pensieve analyze` CLI removed — the user runs v1 slash commands
+  interactively in Claude Code, grounded by Layer 1 structural data.
 
-  **What was replaced:**
-  - Stage 4: `generate_subsystem_doc` → now in `docgen.py`, v1 template
-    shape (≤150 lines, boundaries, evidence anchors, modification guide)
-  - Stage 5: `synthesize_docs` → now `synthesize_v1_docs` in `docgen.py`,
-    produces the full v1 artifact set:
-    - system-overview.md (≤200 lines)
-    - patterns.md (recipe-shaped)
-    - agent-brief.md (≤100 lines)
-    - agent-context.md (≤120 lines)
-    - agent-context-nano.md (≤40 lines)
-    - routing-map.md (deterministic, YAML)
+  **What pensieve provides:**
+  - `pensieve scan` → structure.json + graph.json + structural-profiles.md
+  - `pensieve brief <dirs>` → per-subsystem structural brief
+  - `pensieve wire` → inline nano into CLAUDE.md + install hook
+  - `pensieve benchmark` → measure whether docs help agents
 
-  **What was deprecated:**
-  - context.py `_DEEPDIVE_SYSTEM_PROMPT` (old stage 4)
-  - context.py `synthesize_docs`, `save_synthesis`, `SynthesisResult`
-    (old stage 5 — still in file but not called by CLI)
+  **structural-profiles.md** (7-layer XML format, LLM-optimized):
+  1. `<architecture>` — directory tree with dependant counts, key symbols
+  2. `<signatures>` — top files per directory with full public signatures
+  3. `<dependencies>` — edge lists by coupling strength (HIGH/MODERATE/LOW),
+     circular deps detected. Based on ICLR 2025 finding that edge lists
+     outperform adjacency matrices for LLM graph reasoning.
+  4. `<entry_points>` — application entry files (main, app, server, cli)
+  5. `<external_dependencies>` — top third-party packages by import count
+  6. `<rationale_comments>` — WHY/HACK/IMPORTANT developer annotations
+  7. `<flags>` — auto-generated, test directories
+  XML tags for Claude (Anthropic recommendation). Signatures at ~5-10%
+  of code tokens capturing ~90% of architecture (Code Maps approach).
 
-  New module: `src/pensieve/docgen.py`. 10 tests. 903/903 total pass.
+  **pensieve brief** (per-subsystem, 5 sections):
+  1. `<signatures>` — ALL files, ALL symbols with method-level detail
+  2. `<internal_dependencies>` — within-subsystem + external in/out edges
+  3. `<test_mapping>` — test→source file relationships
+  4. `<entry_points>` — entry files within the subsystem
+  5. `<rationale_comments>` — consolidated WHY/HACK/IMPORTANT comments
 
-  Pipeline: scan → profile → propose → select files → generate
-  v1-shaped subsystem docs → synthesize v1 artifact set → route-index.
+  **Validators:** `validate_structural_profile()` and
+  `validate_subsystem_brief()` check well-formedness. Wired into CLI.
 
-- [ ] **B15.** Validate quality on the calibration repo: v1-shaped docs
-  must be agent-useful and benchmarkable.
-- [ ] **B16.** Run auto-benchmark with v2-generated v1-shaped docs.
-  Compare to v1 original docs and to baseline (no docs).
-- ~~**B17.**~~ *(merged into B14, then reset)*
+  **Fault tolerance:** corrupt/missing structure.json → error tag (no crash),
+  missing graph.json → proceed without graph data, empty files → minimal
+  valid output, all optional sections conditionally emitted.
+
+  **v1 prompt updates:**
+  - `analyze-discover.md` — Step 0: runs `pensieve scan`, reads
+    structural-profiles.md. Step 4: references structural profiles
+    for subsystem detection.
+  - `analyze-deep-dive.md` — Step 0: reads structural data
+    (structure.json, graph.json, structural-profiles.md). Step 1:
+    uses structural evidence for file selection. Step 3e: uses
+    graph.json for dependency analysis.
+
+  **What was removed:**
+  - `pensieve analyze` CLI command (replaced by v1 slash commands)
+  - docgen.py custom prompts (v1 prompts are the source of truth)
+
+  **What was kept:**
+  - context.py: profile_directories, format_structural_profiles,
+    format_subsystem_brief, propose_subsystems, select_files_for_subsystem,
+    generate_route_index, validators
+  - checkpoint.py (for scan caching)
+  - docgen.py (v1 prompt reading + LLM call helpers — still used by
+    benchmark and future tooling)
+  - All benchmark infrastructure (Phase A)
+  - Bx1 route-index, Bx5 hook telemetry
+
+  924 tests. Pipeline: `pensieve scan` → `/analyze-discover` →
+  `/analyze-deep-dive` per subsystem → `/analyze-synthesize` →
+  `pensieve wire`.
+
+- [ ] **B15.** Run v1 slash commands on calibration repo with structural
+  data. Compare output quality to v1-without-structural-data.
+- [ ] **B16.** Run benchmark with new docs. Compare to baseline.
+- ~~**B17.**~~ *(merged into B14, then reset twice)*
 
 ### Proceed criterion (Phase B → Phase C)
 
@@ -678,7 +709,7 @@ foundation that multi-repo cross-edge detection needs in Phase C.
 4. Re-runs on unchanged files take <10% of first-run time on the
    calibration repo (cache is working).
 
-### Phase B status: Layer 1 complete (B1–B13), Layer 2 B14 code-complete, B15–B16 next
+### Phase B status: Layer 1 complete (B1–B13), Layer 2 B14 complete (v1 prompts + Layer 1 evidence), B15–B16 next
 
 ### Phase B notes
 
@@ -739,15 +770,30 @@ foundation that multi-repo cross-edge detection needs in Phase C.
   (profiler, proposer, file selector, doc generator, synthesis). CLI:
   analyze + wire. Validated on socrates. Then RESET.
 
-- **2026-04-10 (B14 RESET):** Layer 2 architecture replaced. Old custom
-  output shape (3-artifact synthesis) deprecated. New: v1-framework-shaped
-  output grounded by Layer 1 evidence. New module: `src/pensieve/docgen.py`.
-  Kept from old B14: directory profiler, subsystem proposer, file
-  selector, checkpointing, CLI, parallelism, Bx route-index/telemetry.
-  Replaced: stage 4 (subsystem docs now v1 template, ≤150 lines) and
-  stage 5 (full v1 artifact set: system-overview, patterns, agent-brief,
-  agent-context, nano, routing-map). routing-map.md is deterministic
-  (YAML, no LLM). 903 tests total.
+- **2026-04-10 (B14 RESET 1):** Old custom output shape replaced with
+  v1-framework-shaped output in docgen.py. 903 tests.
+
+- **2026-04-11 (B14 RESET 2 — FINAL):** Abandoned programmatic doc
+  generation entirely. v1 slash commands ARE the doc pipeline. Pensieve
+  provides evidence, not docs. Key changes:
+  - `pensieve analyze` CLI removed
+  - v1 prompts updated: analyze-discover.md Step 0 runs `pensieve scan`
+    and reads structural-profiles.md; analyze-deep-dive.md Step 0 reads
+    structural data for the target subsystem
+  - `pensieve scan` now produces structural-profiles.md (7-layer XML:
+    architecture, signatures, dependencies, entry points, external deps,
+    rationale comments, flags)
+  - `pensieve brief <dirs>` CLI added (per-subsystem structural brief
+    with full file-level signatures)
+  - Validators for both profile formats (validate_structural_profile,
+    validate_subsystem_brief)
+  - Full fault tolerance: corrupt/missing files → error tags, missing
+    graph → proceed without, empty repos → minimal valid output
+  - 924 tests total
+  - Design grounded in: Aider repo map (tree-sitter + PageRank), RIG
+    paper (+12.2% accuracy with descriptive fields), ICLR 2025 (edge
+    lists > matrices), Anthropic (XML tags for Claude), Code Maps
+    (signatures capture 90% of architecture at 5% token cost)
 
 ---
 
@@ -1027,7 +1073,9 @@ and users adopt it.
 | 2026-04-10 | **B14+B17 merged** | Both consume structure.json + graph.json for the LLM orchestration layer. B14 (deep-dive prompts) and B17 (structural graph into subsystem mapping) are the same pipeline: graph → subsystem boundaries → per-subsystem deep-dive. Splitting them was the pre-AST plan. |
 | 2026-04-10 | **Auto-updating agent-docs (D12)** | Docs become stale on every merge. Two-level refresh: structural (deterministic, near-zero cost on changed files) and doc-level (LLM re-evaluates affected subsystems when structural diff exceeds threshold). Deferred to Phase D. |
 | 2026-04-10 | **A13 provisional, defer full calibration to post-B14** | Benchmark infrastructure is validated. But benchmarking v1 agent-docs doesn't test the v2 pipeline. The right sequence: finish B14 → re-benchmark with generated docs → compare to teammate. |
-| 2026-04-10 | **Phase B Layer 2 RESET** | Old Layer 2 (custom output shape, 3-artifact synthesis) replaced with v1-framework-shaped output grounded by Layer 1 evidence. New module: `docgen.py`. Output: system-overview, patterns, agent-brief, agent-context, nano, routing-map, subsystem docs — all v1-shaped. Layer 1 (extractors, graph) and infrastructure (CLI, checkpoints, parallelism, benchmarks, Bx) preserved. Old synthesis code in context.py deprecated but not deleted. |
+| 2026-04-10 | **Phase B Layer 2 RESET 1** | Replaced custom output shape with v1-framework-shaped output in docgen.py. |
+| 2026-04-11 | **Phase B Layer 2 RESET 2 (FINAL)** | Abandoned programmatic doc generation. v1 slash commands are the doc pipeline. Pensieve provides structural evidence (scan → structural-profiles.md + brief), not docs. `pensieve analyze` removed. v1 prompts updated to consume Layer 1 data. Design: pensieve scan produces the evidence, v1 prompts interpret it, human runs the interactive workflow. |
+| 2026-04-11 | **LLM-optimized structural profiles** | 7-layer XML format for structural-profiles.md. Architecture tree, signatures, edge-list dependencies, entry points, external deps, rationale comments, flags. Grounded in Aider repo map, RIG paper, ICLR 2025, Anthropic XML guidance, Code Maps approach. Validators + fault tolerance added. |
 
 ---
 

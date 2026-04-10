@@ -38,6 +38,10 @@ from pensieve.context import (
     save_synthesis,
     synthesize_docs,
     select_files_for_subsystem,
+    format_structural_profiles,
+    format_subsystem_brief,
+    validate_structural_profile,
+    validate_subsystem_brief,
 )
 
 
@@ -91,8 +95,8 @@ def _edge(source: str, target: str, kind: str = "imports", detail: str = ""):
     }
 
 
-def _sym(name: str):
-    return {"name": name, "kind": "function"}
+def _sym(name: str, kind: str = "function"):
+    return {"name": name, "kind": kind, "signature": f"def {name}():" if kind == "function" else f"class {name}:", "visibility": "public", "parent": None, "line_start": 1, "line_end": 5}
 
 
 # ---------------------------------------------------------------------------
@@ -1415,3 +1419,226 @@ class TestRouteIndex:
         data = json.loads(path.read_text())
         assert data["routes"] == []
         assert "fallback_hint" in data
+
+
+# ---------------------------------------------------------------------------
+# LLM-optimized structural profiles (XML format)
+# ---------------------------------------------------------------------------
+
+
+class TestStructuralProfiles:
+    """Test the XML-tagged, layered structural profiles format."""
+
+    def _make_repo(self, tmp_path):
+        sp = _write_structure(tmp_path, [
+            _file("src/routers/users.py", symbols=[
+                _sym("get_users"), _sym("create_user"),
+            ]),
+            _file("src/routers/posts.py", symbols=[_sym("get_posts")]),
+            _file("src/models/user.py", symbols=[
+                _sym("User", kind="class"), _sym("UserModel", kind="class"),
+            ]),
+            _file("src/models/base.py", symbols=[_sym("Base", kind="class")]),
+        ])
+        gp = _write_graph(tmp_path, [
+            _edge("src/routers/users.py", "src/models/user.py"),
+            _edge("src/routers/users.py", "src/models/base.py"),
+            _edge("src/routers/posts.py", "src/models/user.py"),
+            _edge("src/models/user.py", "src/models/base.py"),
+        ])
+        return sp, gp
+
+    def test_contains_xml_tags(self, tmp_path):
+        sp, gp = self._make_repo(tmp_path)
+        output = format_structural_profiles(sp, gp)
+        assert "<repository" in output
+        assert "</repository>" in output
+        assert "<architecture>" in output
+        assert "</architecture>" in output
+        assert "<signatures>" in output
+        assert "</signatures>" in output
+        assert "<dependencies>" in output
+        assert "</dependencies>" in output
+
+    def test_architecture_shows_directories(self, tmp_path):
+        sp, gp = self._make_repo(tmp_path)
+        output = format_structural_profiles(sp, gp)
+        assert "src/routers/" in output
+        assert "src/models/" in output
+
+    def test_signatures_show_function_names(self, tmp_path):
+        sp, gp = self._make_repo(tmp_path)
+        output = format_structural_profiles(sp, gp)
+        # Should show actual signatures, not just counts
+        assert "get_users" in output or "User" in output
+
+    def test_dependencies_section_present(self, tmp_path):
+        sp, gp = self._make_repo(tmp_path)
+        output = format_structural_profiles(sp, gp)
+        # Dependencies section should exist even if thresholds aren't met
+        assert "<dependencies>" in output
+        assert "</dependencies>" in output
+
+    def test_no_edge_density_percentages(self, tmp_path):
+        """New format should NOT contain old-style density percentages."""
+        sp, gp = self._make_repo(tmp_path)
+        output = format_structural_profiles(sp, gp)
+        assert "Edge density:" not in output
+
+
+class TestSubsystemBrief:
+    """Test the per-subsystem brief format."""
+
+    def _make_repo(self, tmp_path):
+        sp = _write_structure(tmp_path, [
+            _file("src/models/user.py", symbols=[
+                _sym("User", kind="class"), _sym("get_user"),
+            ]),
+            _file("src/models/base.py", symbols=[
+                _sym("Base", kind="class"), _sym("get_session"),
+            ]),
+            _file("src/routers/api.py", symbols=[_sym("router")]),
+        ])
+        gp = _write_graph(tmp_path, [
+            _edge("src/models/user.py", "src/models/base.py"),
+            _edge("src/routers/api.py", "src/models/user.py"),
+        ])
+        return sp, gp
+
+    def test_contains_subsystem_brief_tags(self, tmp_path):
+        sp, gp = self._make_repo(tmp_path)
+        output = format_subsystem_brief(["src/models"], sp, gp)
+        assert "<subsystem_brief" in output
+        assert "</subsystem_brief>" in output
+
+    def test_shows_all_file_signatures(self, tmp_path):
+        sp, gp = self._make_repo(tmp_path)
+        output = format_subsystem_brief(["src/models"], sp, gp)
+        assert "User" in output
+        assert "Base" in output
+        assert "get_session" in output
+
+    def test_shows_internal_dependencies(self, tmp_path):
+        sp, gp = self._make_repo(tmp_path)
+        output = format_subsystem_brief(["src/models"], sp, gp)
+        assert "<internal_dependencies>" in output
+
+    def test_shows_external_dependants(self, tmp_path):
+        sp, gp = self._make_repo(tmp_path)
+        output = format_subsystem_brief(["src/models"], sp, gp)
+        # routers/api.py imports from models — should show as external dependant
+        assert "src/routers" in output or "Depended on by" in output
+
+    def test_empty_dirs_handled(self, tmp_path):
+        sp, gp = self._make_repo(tmp_path)
+        output = format_subsystem_brief(["nonexistent"], sp, gp)
+        assert "No files found" in output
+
+
+# ---------------------------------------------------------------------------
+# Validators
+# ---------------------------------------------------------------------------
+
+
+class TestValidateStructuralProfile:
+
+    def test_valid_profile_passes(self, tmp_path):
+        sp = _write_structure(tmp_path, [
+            _file("src/a.py", symbols=[_sym("foo")]),
+            _file("src/b.py", symbols=[_sym("bar")]),
+        ])
+        gp = _write_graph(tmp_path, [])
+        output = format_structural_profiles(sp, gp)
+        errors = validate_structural_profile(output)
+        assert errors == []
+
+    def test_missing_repository_tag(self):
+        errors = validate_structural_profile("<architecture></architecture>")
+        assert any("repository" in e.lower() for e in errors)
+
+    def test_missing_required_section(self):
+        errors = validate_structural_profile("<repository>\n</repository>")
+        assert any("architecture" in e.lower() for e in errors)
+        assert any("signatures" in e.lower() for e in errors)
+        assert any("dependencies" in e.lower() for e in errors)
+
+    def test_error_attribute_detected(self):
+        errors = validate_structural_profile(
+            '<repository error="Failed">\n</repository>'
+        )
+        assert any("error" in e.lower() for e in errors)
+
+
+class TestValidateSubsystemBrief:
+
+    def test_valid_brief_passes(self, tmp_path):
+        sp = _write_structure(tmp_path, [
+            _file("src/a.py", symbols=[_sym("foo")]),
+        ])
+        gp = _write_graph(tmp_path, [])
+        output = format_subsystem_brief(["src"], sp, gp)
+        errors = validate_subsystem_brief(output)
+        assert errors == []
+
+    def test_missing_brief_tag(self):
+        errors = validate_subsystem_brief("some random text")
+        assert any("subsystem_brief" in e.lower() for e in errors)
+
+    def test_error_attribute_detected(self):
+        errors = validate_subsystem_brief(
+            '<subsystem_brief error="Failed">\n</subsystem_brief>'
+        )
+        assert any("error" in e.lower() for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# Fault tolerance
+# ---------------------------------------------------------------------------
+
+
+class TestFaultTolerance:
+
+    def test_profiles_with_missing_graph(self, tmp_path):
+        """format_structural_profiles should work without graph.json."""
+        sp = _write_structure(tmp_path, [
+            _file("src/a.py", symbols=[_sym("foo")]),
+        ])
+        # No graph.json exists
+        fake_graph = tmp_path / "nonexistent_graph.json"
+        output = format_structural_profiles(sp, fake_graph)
+        assert "<repository" in output
+        errors = validate_structural_profile(output)
+        assert errors == []
+
+    def test_profiles_with_empty_files(self, tmp_path):
+        """Repo with zero files should not crash."""
+        sp = _write_structure(tmp_path, [])
+        gp = _write_graph(tmp_path, [])
+        output = format_structural_profiles(sp, gp)
+        assert "<repository" in output
+        assert "no files found" in output.lower()
+
+    def test_profiles_with_corrupt_structure(self, tmp_path):
+        """Corrupt structure.json should return error, not crash."""
+        sp = tmp_path / "structure.json"
+        sp.write_text("NOT VALID JSON!!!")
+        gp = _write_graph(tmp_path, [])
+        output = format_structural_profiles(sp, gp)
+        assert "error" in output.lower()
+
+    def test_brief_with_missing_graph(self, tmp_path):
+        """format_subsystem_brief should work without graph.json."""
+        sp = _write_structure(tmp_path, [
+            _file("src/a.py", symbols=[_sym("foo")]),
+        ])
+        fake_graph = tmp_path / "nonexistent.json"
+        output = format_subsystem_brief(["src"], sp, fake_graph)
+        assert "<subsystem_brief" in output
+
+    def test_brief_with_corrupt_structure(self, tmp_path):
+        """Corrupt structure.json in brief should return error, not crash."""
+        sp = tmp_path / "structure.json"
+        sp.write_text("{{{corrupt")
+        gp = _write_graph(tmp_path, [])
+        output = format_subsystem_brief(["src"], sp, gp)
+        assert "error" in output.lower()

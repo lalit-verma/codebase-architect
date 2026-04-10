@@ -316,14 +316,15 @@ class TestDiscoverSubsystemMapInput:
         assert "pre-confirmed" in user_prompt
 
 
-class TestOutputOnlyToAgentDocs:
-    """The analyze path must write only to <repo>/agent-docs."""
+class TestAnalyzeCommandRemoved:
+    """pensieve analyze CLI was removed — v1 slash commands are the pipeline."""
 
-    def test_analyze_parser_has_no_output_dir(self):
+    def test_analyze_not_a_valid_command(self):
         from pensieve.cli import _build_parser
         parser = _build_parser()
-        args = parser.parse_args(["analyze", "/tmp/repo"])
-        assert not hasattr(args, "output_dir")
+        import pytest
+        with pytest.raises(SystemExit):
+            parser.parse_args(["analyze", "/tmp/repo"])
 
 
 class TestToolRestriction:
@@ -388,82 +389,16 @@ class TestDeepDiveInjectsContext:
         assert "Purpose: test app" in user_prompt
 
 
-class TestRealCLIPath:
-    """End-to-end CLI test: pensieve analyze creates artifacts under agent-docs/."""
+class TestScanProducesStructuralProfiles:
+    """pensieve scan should produce structural-profiles.md for v1 prompts."""
 
-    def test_analyze_writes_to_agent_docs(self, tmp_path):
-        """A full analyze run (with mocked LLM) should write files
-        under <repo>/agent-docs/ and verify required artifacts."""
+    def test_scan_creates_profiles(self, tmp_path):
         from pensieve.cli import main
-
         repo = tmp_path / "repo"
         repo.mkdir()
         (repo / "main.py").write_text("def main(): pass\n")
-
-        from pensieve.scan import scan_repo
-        scan_repo(repo)
-
-        required_files = [
-            "agent-context.md", "agent-context-nano.md", "patterns.md",
-            "routing-map.md", "system-overview.md", "agent-brief.md",
-            "index.md", "agent-protocol.md",
-        ]
-
-        def _mock_subprocess(cmd, **kwargs):
-            cwd = kwargs.get("cwd", str(repo))
-            ad = Path(cwd) / "agent-docs"
-            ad.mkdir(parents=True, exist_ok=True)
-
-            # Check system prompt to route the mock
-            system_prompt = ""
-            if "--system-prompt" in cmd:
-                sp_idx = cmd.index("--system-prompt")
-                if sp_idx + 1 < len(cmd):
-                    system_prompt = cmd[sp_idx + 1]
-
-            # Phase 3 synthesis: write all required files
-            if "Phase 3" in system_prompt:
-                for name in required_files:
-                    (ad / name).write_text(f"# {name}\nGenerated.\n")
-                return mock.MagicMock(
-                    stdout="Synthesis complete.", stderr="", returncode=0,
-                )
-
-            # Phase 1 discover: write system-overview + analysis-state
-            if "Phase 1" in system_prompt:
-                (ad / "system-overview.md").write_text("# Overview\n")
-                (ad / ".analysis-state.md").write_text("---\nphase_completed: 1\n---\n")
-                return mock.MagicMock(
-                    stdout="---FILE: system-overview.md---\n# Overview\n",
-                    stderr="", returncode=0,
-                )
-
-            # Default: structured JSON for proposals/selections,
-            # or plain text for deep-dive
-            return mock.MagicMock(
-                stdout=json.dumps({
-                    "type": "result", "is_error": False, "result": "",
-                    "structured_output": {
-                        "subsystems": [
-                            {"name": "Core", "directories": ["(root)"],
-                             "role": "main", "rationale": "x"},
-                        ],
-                        "excluded": [],
-                        "files": [],
-                    },
-                }),
-                stderr="", returncode=0,
-            )
-
-        with mock.patch("pensieve.context.subprocess.run", side_effect=_mock_subprocess):
-            with mock.patch("pensieve.docgen.subprocess.run", side_effect=_mock_subprocess):
-                result = main(["analyze", str(repo)])
-
-        ad = repo / "agent-docs"
-        assert ad.exists()
-
-        for name in required_files:
-            assert (ad / name).exists(), f"Missing required artifact: {name}"
-
-        assert (ad / "route-index.json").exists()
+        result = main(["scan", str(repo)])
         assert result == 0
+        profiles = repo / "agent-docs" / "structural-profiles.md"
+        assert profiles.exists()
+        assert "<repository" in profiles.read_text()

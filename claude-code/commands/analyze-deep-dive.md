@@ -110,15 +110,44 @@ A subsystem doc is not good enough if it:
 
 ## Procedure
 
+### Step 0: Read Structural Evidence (if available)
+
+Check if `agent-docs/structure.json` and `agent-docs/graph.json` exist
+(produced by `pensieve scan` during Phase 1). If they do:
+
+1. Read `agent-docs/structural-profiles.md` for the directory-level
+   overview of this subsystem (edge density, coupling, key symbols).
+2. For the target subsystem's directories, extract from
+   `agent-docs/structure.json`: every file's symbols (names, kinds,
+   signatures), imports, exports, call edges, and rationale comments.
+   This gives you the complete structural skeleton without reading any
+   source files.
+3. From `agent-docs/graph.json`: the subsystem's import dependencies
+   (what it imports from, what imports it), cross-file call edges,
+   and test→source mapping.
+
+Use this structural evidence to guide which files you actually read in
+full. **Read files that are architecturally revealing** (entry points,
+factories, registries, the most-imported files) rather than sampling
+blindly. The structural data tells you which files are central — you
+don't need to guess.
+
+If structural data is not available, fall back to the manual approach
+in Step 1.
+
 ### Step 1: Read the Subsystem
 
 Using the path from the analysis state:
 
-1. List all files in the subsystem directory
-2. For small subsystems (<30 files): read all non-test files, sample
-   tests
-3. For large subsystems (30+ files): read central files fully, sample
-   repetitive leaves. Note what was sampled.
+1. **If structural data was read in Step 0:** You already know every
+   file's symbols and relationships. Read in full only the files that
+   the structural evidence shows are architecturally important (high
+   incoming edges, entry points, files with the most call edges).
+   Note what was read fully vs skipped.
+2. For small subsystems (<30 files) without structural data: read all
+   non-test files, sample tests.
+3. For large subsystems (30+ files) without structural data: read
+   central files fully, sample repetitive leaves. Note what was sampled.
 
 ### Step 2: Evaluate Recursion Need
 
@@ -186,7 +215,12 @@ if recursive):
 
 **e) Dependencies**
 - Internal: what other subsystems does it import? What imports it?
+  **If graph.json is available**, use it for the complete import graph
+  — it has exact edge counts between directories. Do not guess at
+  dependencies when the graph has the authoritative data.
 - External: what third-party packages? Which are load-bearing?
+  **If structure.json is available**, check its external_imports for
+  the complete list.
 - Flag circular dependencies or surprising coupling
 
 **f) Configuration**

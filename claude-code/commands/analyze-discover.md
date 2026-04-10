@@ -57,9 +57,33 @@ primary consumer is a coding agent working in this codebase.
 
 Execute these steps in order. Do not skip steps.
 
+### Step 0: Structural Scan (Pensieve)
+
+Run `pensieve scan .` to generate AST-extracted structural data. This
+produces three files under `agent-docs/`:
+- `structure.json` — every file's symbols, imports, exports, call edges
+- `graph.json` — cross-file dependency graph (import edges, call edges,
+  test→source mapping)
+- `structural-profiles.md` — condensed directory profiles with edge
+  density, coupling targets, key symbols
+
+If `agent-docs/structural-profiles.md` already exists and is recent,
+skip the scan and read the existing file.
+
+**Read `agent-docs/structural-profiles.md` now.** This gives you the
+complete structural truth about the repository — file counts per
+directory, internal vs external coupling, key symbols, auto-generated
+directory flags, test directories. Use this evidence throughout the
+remaining steps. It is more complete than manual file exploration.
+
+If `pensieve` is not available (command not found), proceed without
+structural data — the remaining steps work without it, just less
+thoroughly.
+
 ### Step 1: Classify the Repository
 
-Determine from evidence (manifests, file layout, entrypoints, README):
+Determine from evidence (manifests, file layout, entrypoints, README,
+**and structural-profiles.md if available**):
 
 | Field | What to determine |
 |-------|-------------------|
@@ -144,6 +168,15 @@ Inspect the repository in this priority order:
 Always note what was read fully vs. sampled vs. skipped.
 
 ### Step 4: Map Subsystems
+
+**If structural-profiles.md was read in Step 0**, use its directory
+profiles as the primary evidence for subsystem detection. The profiles
+show internal edge density (how self-contained a directory is),
+cross-directory coupling (which directories depend on each other),
+file counts, key symbols, and auto-generated flags. Directories with
+high internal edge density and clear responsibilities are strong
+subsystem candidates. Directories flagged as AUTO-GENERATED or TEST
+are typically not subsystems.
 
 Identify real architectural subsystems. A folder is a subsystem only
 if it satisfies **at least 2** of (load `subsystem-mapping-rubric.md`

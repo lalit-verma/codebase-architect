@@ -274,11 +274,13 @@ class TestClear:
 
 
 # ---------------------------------------------------------------------------
-# CLI-path resume
+# CLI-path resume (removed — `pensieve analyze` CLI was removed in
+# favor of v1 slash commands. Checkpoint module is still used for
+# scan caching. The tests above validate the checkpoint API.)
 # ---------------------------------------------------------------------------
 
 
-class TestCLIResume:
+class _DeprecatedTestCLIResume:
 
     def test_second_run_reuses_checkpoints(self, capsys, tmp_path):
         """A second analyze run on the same inputs should show [reused]."""

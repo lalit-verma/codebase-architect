@@ -70,7 +70,6 @@ class TestHelp:
 
         captured = capsys.readouterr()
         assert "scan" in captured.out.lower()
-        assert "analyze" in captured.out.lower()
         assert "wire" in captured.out.lower()
         assert "benchmark" in captured.out.lower()
 
@@ -123,105 +122,20 @@ class TestEntryPoint:
 
 
 # ---------------------------------------------------------------------------
-# Analyze command (B14)
+# Scan produces structural-profiles.md
 # ---------------------------------------------------------------------------
 
 
-class TestAnalyzeCommand:
+class TestScanProducesProfiles:
 
-    def test_analyze_help(self, capsys):
-        with pytest.raises(SystemExit) as exc_info:
-            main(["analyze", "--help"])
-        assert exc_info.value.code == 0
-        captured = capsys.readouterr()
-        assert "analyze" in captured.out.lower()
-
-    def test_analyze_listed_in_top_help(self, capsys):
-        with pytest.raises(SystemExit):
-            main(["--help"])
-        captured = capsys.readouterr()
-        assert "analyze" in captured.out.lower()
-
-    def test_nonexistent_repo_fails(self, capsys, tmp_path):
-        bad = str(tmp_path / "nope")
-        result = main(["analyze", bad])
-        assert result == 1
-        assert "not a directory" in capsys.readouterr().err
-
-    def test_structure_without_graph_rescans(self, capsys, tmp_path):
-        """If structure.json exists but graph.json is missing, analyze
-        should rescan instead of crashing with FileNotFoundError."""
-        import json as json_mod
+    def test_scan_writes_structural_profiles(self, tmp_path):
+        """pensieve scan should produce structural-profiles.md."""
         repo = tmp_path / "repo"
         repo.mkdir()
-        ad = repo / "agent-docs"
-        ad.mkdir()
-        # Create structure.json but NOT graph.json
-        (ad / "structure.json").write_text(json_mod.dumps({
-            "repo_root": str(repo), "files": [], "errors": [],
-            "extractor_version": "test",
-        }))
-        # Create a source file so scan has something to find
         (repo / "main.py").write_text("def main(): pass\n")
-
-        # This should NOT crash — it should rescan and then fail
-        # at the proposal step (no LLM available in tests), but
-        # the point is it doesn't raise FileNotFoundError.
-        # We just verify it gets past stage 1 without crashing.
-        # It will fail at stage 2 (proposal needs LLM) — that's fine.
-        result = main(["analyze", str(repo)])
-        # Should have rescanned (graph was missing)
-        captured = capsys.readouterr()
-        assert "Scanning repo" in captured.out
-
-    def test_timeout_flags_in_help(self, capsys):
-        """All four timeout flags should appear in analyze --help."""
-        with pytest.raises(SystemExit):
-            main(["analyze", "--help"])
-        captured = capsys.readouterr()
-        assert "--proposal-timeout" in captured.out
-        assert "--selection-timeout" in captured.out
-        assert "--doc-timeout" in captured.out
-        assert "--synthesis-timeout" in captured.out
-
-    def test_timeout_flags_parsed(self):
-        """Timeout flags should be parsed into args without error."""
-        import argparse
-        from pensieve.cli import _build_parser
-        parser = _build_parser()
-        args = parser.parse_args([
-            "analyze", "/tmp/repo",
-            "--proposal-timeout", "600",
-            "--selection-timeout", "400",
-            "--doc-timeout", "500",
-            "--synthesis-timeout", "350",
-        ])
-        assert args.proposal_timeout == 600
-        assert args.selection_timeout == 400
-        assert args.doc_timeout == 500
-        assert args.synthesis_timeout == 350
-
-    def test_analyze_parallelism_flag(self):
-        from pensieve.cli import _build_parser
-        parser = _build_parser()
-        args = parser.parse_args([
-            "analyze", "/tmp/repo", "--analyze-parallelism", "4",
-        ])
-        assert args.analyze_parallelism == 4
-
-    def test_analyze_parallelism_in_help(self, capsys):
-        with pytest.raises(SystemExit):
-            main(["analyze", "--help"])
-        captured = capsys.readouterr()
-        assert "--analyze-parallelism" in captured.out
-
-    def test_analyze_parallelism_invalid_rejected(self, capsys, tmp_path):
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        ad = repo / "agent-docs"
-        ad.mkdir()
-        (ad / "structure.json").write_text('{"repo_root":"x","files":[],"errors":[]}')
-        (ad / "graph.json").write_text('{"nodes":[],"edges":[],"external_imports":[]}')
-        result = main(["analyze", str(repo), "--analyze-parallelism", "0"])
-        assert result == 1
-        assert "must be >= 1" in capsys.readouterr().err
+        result = main(["scan", str(repo)])
+        assert result == 0
+        profiles = repo / "agent-docs" / "structural-profiles.md"
+        assert profiles.exists()
+        content = profiles.read_text()
+        assert "<repository" in content
