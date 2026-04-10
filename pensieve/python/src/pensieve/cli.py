@@ -173,6 +173,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dev", action="store_true", default=False,
         help="Dev mode: generate 1 easy task only.",
     )
+    run_parser.add_argument(
+        "--parallelism", type=int, default=1,
+        help=(
+            "Number of tasks to run concurrently within each mode "
+            "(default: 1 = sequential). Timing metrics are only "
+            "comparable across runs with the same parallelism."
+        ),
+    )
 
     # --- hook subcommand (A3, A4) ---
     hook_parser = subparsers.add_parser(
@@ -430,9 +438,14 @@ def _cmd_benchmark_run(args) -> int:
     for inst in instances:
         by_diff[inst.difficulty] = by_diff.get(inst.difficulty, 0) + 1
 
+    parallelism = args.parallelism
+    if parallelism < 1:
+        print("pensieve benchmark run: --parallelism must be >= 1", file=sys.stderr)
+        return 1
+
     _log(f"Running benchmark on {repo_root}")
     _log(f"  tasks: {len(instances)} (easy={by_diff['easy']}, medium={by_diff['medium']}, hard={by_diff['hard']})")
-    _log(f"  judge: {'on' if args.judge else 'off'}")
+    _log(f"  judge: {'on' if args.judge else 'off'}  parallelism: {parallelism}")
 
     result = run_generated_benchmark(
         repo_root=repo_root,
@@ -440,6 +453,7 @@ def _cmd_benchmark_run(args) -> int:
         executor=executor,
         on_progress=_on_progress,
         run_judge=args.judge,
+        parallelism=parallelism,
     )
 
     # Aggregate metrics

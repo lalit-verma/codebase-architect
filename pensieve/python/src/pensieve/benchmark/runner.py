@@ -655,6 +655,89 @@ def _run_concrete_strict_check(
     return False
 
 
+def _run_mode_tasks(
+    mode_copy: Path,
+    instances: list,
+    executor: Executor,
+    mode: str,
+    on_progress: ProgressCallback | None,
+    run_judge: bool,
+    judge_model: str,
+    parallelism: int,
+) -> list[TaskResult]:
+    """Run all task instances for one mode, with optional parallelism.
+
+    Each task gets its own copytree from mode_copy for isolation.
+    Results are returned in original task order regardless of
+    completion order.
+    """
+    import shutil
+    import tempfile
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    total = len(instances)
+
+    def _notify(name, idx, result=None):
+        if on_progress:
+            on_progress(mode, name, idx, total, result)
+
+    def _run_one(index: int, inst) -> tuple[int, TaskResult]:
+        """Run a single task in its own isolated copy. Returns (index, result)."""
+        _notify(inst.template_family, index + 1)
+        task_dir = Path(tempfile.mkdtemp(prefix="pensieve_task_"))
+        task_copy = task_dir / "repo"
+        try:
+            shutil.copytree(mode_copy, task_copy)
+            result = run_task_instance(
+                inst, task_copy, executor, mode,
+                run_judge=run_judge, judge_model=judge_model,
+            )
+            _notify(inst.template_family, index + 1, result)
+            return (index, result)
+        except Exception as exc:
+            err_result = TaskResult(
+                template_name=inst.template_family,
+                mode=mode,
+                instruction=inst.instruction,
+                error=f"Task worker failed: {exc}",
+            )
+            _notify(inst.template_family, index + 1, err_result)
+            return (index, err_result)
+        finally:
+            shutil.rmtree(task_dir, ignore_errors=True)
+
+    if parallelism <= 1:
+        # Sequential — same behavior as before
+        results: list[tuple[int, TaskResult]] = []
+        for i, inst in enumerate(instances):
+            results.append(_run_one(i, inst))
+        results.sort(key=lambda x: x[0])
+        return [r for _, r in results]
+
+    # Parallel execution
+    indexed_results: list[tuple[int, TaskResult]] = []
+    with ThreadPoolExecutor(max_workers=parallelism) as pool:
+        futures = {
+            pool.submit(_run_one, i, inst): i
+            for i, inst in enumerate(instances)
+        }
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                indexed_results.append(future.result())
+            except Exception as exc:
+                inst = instances[idx]
+                indexed_results.append((idx, TaskResult(
+                    template_name=inst.template_family,
+                    mode=mode,
+                    instruction=inst.instruction,
+                    error=f"Future failed: {exc}",
+                )))
+
+    indexed_results.sort(key=lambda x: x[0])
+    return [r for _, r in indexed_results]
+
+
 def run_generated_benchmark(
     repo_root: Path,
     instances: list,  # list[TaskInstance]
@@ -664,11 +747,18 @@ def run_generated_benchmark(
     on_progress: ProgressCallback | None = None,
     run_judge: bool = False,
     judge_model: str = "sonnet",
+    parallelism: int = 1,
 ) -> BenchmarkResult:
     """Run the benchmark using generated TaskInstances.
 
-    Same isolation model as run_benchmark: each mode runs on a fresh
-    copy. Setup_actions are applied per-task inside the copy.
+    Each mode runs on a fresh copy. Per-task isolation via copytree.
+    Tasks within a mode can run in parallel (parallelism > 1).
+    Baseline and framework modes always run sequentially.
+
+    Note on timing: with parallelism > 1, wall-clock time decreases
+    but per-task time_seconds (from Claude Code's duration_ms) is
+    unaffected. Total time and per-task time are only comparable
+    across runs with the same parallelism setting.
 
     Args:
         repo_root: Path to the target repo.
@@ -678,6 +768,8 @@ def run_generated_benchmark(
         on_progress: Progress callback.
         run_judge: Whether to run LLM judge.
         judge_model: Model for judging.
+        parallelism: Number of tasks to run concurrently within a mode.
+            1 = sequential (default). Must be >= 1.
 
     Returns:
         BenchmarkResult with per-task results for each mode.
@@ -690,11 +782,6 @@ def run_generated_benchmark(
 
     baseline_results: list[TaskResult] = []
     framework_results: list[TaskResult] = []
-    total = len(instances)
-
-    def _notify(mode, name, idx, result=None):
-        if on_progress:
-            on_progress(mode, name, idx, total, result)
 
     # --- With-framework on a FRESH COPY ---
     if run_framework:
@@ -703,22 +790,10 @@ def run_generated_benchmark(
         try:
             shutil.copytree(repo_root, fw_copy)
             setup_framework(fw_copy)
-            for i, inst in enumerate(instances):
-                _notify("with_framework", inst.template_family, i + 1)
-                # Each task gets a fresh copy of the repo within the mode copy
-                # to prevent cross-task contamination from setup_actions
-                task_dir = Path(tempfile.mkdtemp(prefix="pensieve_task_"))
-                task_copy = task_dir / "repo"
-                try:
-                    shutil.copytree(fw_copy, task_copy)
-                    result = run_task_instance(
-                        inst, task_copy, executor, "with_framework",
-                        run_judge=run_judge, judge_model=judge_model,
-                    )
-                    framework_results.append(result)
-                    _notify("with_framework", inst.template_family, i + 1, result)
-                finally:
-                    shutil.rmtree(task_dir, ignore_errors=True)
+            framework_results = _run_mode_tasks(
+                fw_copy, instances, executor, "with_framework",
+                on_progress, run_judge, judge_model, parallelism,
+            )
         finally:
             shutil.rmtree(fw_dir, ignore_errors=True)
 
@@ -729,20 +804,10 @@ def run_generated_benchmark(
         try:
             shutil.copytree(repo_root, bl_copy)
             setup_baseline(bl_copy)
-            for i, inst in enumerate(instances):
-                _notify("baseline", inst.template_family, i + 1)
-                task_dir = Path(tempfile.mkdtemp(prefix="pensieve_task_"))
-                task_copy = task_dir / "repo"
-                try:
-                    shutil.copytree(bl_copy, task_copy)
-                    result = run_task_instance(
-                        inst, task_copy, executor, "baseline",
-                        run_judge=run_judge, judge_model=judge_model,
-                    )
-                    baseline_results.append(result)
-                    _notify("baseline", inst.template_family, i + 1, result)
-                finally:
-                    shutil.rmtree(task_dir, ignore_errors=True)
+            baseline_results = _run_mode_tasks(
+                bl_copy, instances, executor, "baseline",
+                on_progress, run_judge, judge_model, parallelism,
+            )
         finally:
             shutil.rmtree(bl_dir, ignore_errors=True)
 
