@@ -315,8 +315,44 @@ infrastructure we need for every subsequent phase.
   (_delete_file, get_digest_items), central files (models/tools.py).
   No migrations, no fictional bugs, no root-level scripts.
   28 generation tests + 812/812 total pass.
-  STATUS: not yet re-run on calibration repo. Infrastructure is
-  ready. Full run needed to produce valid A13 numbers.)*
+
+  Additional infrastructure (2026-04-10):
+  - 6 task families: add_sibling, add_test (easy), bug_fix,
+    architecture (medium), find_owner, cross_subsystem (hard)
+  - CLI: `benchmark generate` + `benchmark run --tasks-file`
+  - Task audit report printed on generate
+  - Parallel execution: --parallelism N (ThreadPoolExecutor)
+  - parallelism recorded in benchmark.json metadata
+  - Judge timeout increased to 180s (60s caused false zeros)
+  - Enriched RepoContext: README, config files, entrypoints,
+    test conventions, cross-dir edges, registration hubs
+  - 823 total tests pass.
+
+  CALIBRATION RUN (2026-04-10, 2 tasks: 1 easy + 1 medium):
+  - FW cost -1.0%, tokens +13.8%, time -0.1%, quality +0.00,
+    lenient +0.0pp. Verdict: MIXED.
+  - Zero errors, zero judge timeouts.
+  - Per-task: add_sibling FW $0.311/60s vs BL $0.349/71s;
+    bug_fix FW $0.145/27s vs BL $0.112/16s.
+  - Both modes quality=1.0, lenient=FAIL on both tasks.
+
+  A14 PRELIMINARY ANALYSIS vs teammate v3 (30 tasks):
+  - Cost parity: CONSISTENT (both show ~tied)
+  - Token delta: DIVERGENT (we +13.8% vs teammate -5%) —
+    task design problem, not measurement bug
+  - Quality/lenient: DIVERGENT (we +0.00/+0pp vs teammate
+    +0.20/+6.6pp) — 2 tasks too few, tasks don't exercise
+    framework's value proposition
+  - Root causes: task count too small, task mix doesn't
+    include navigation/convention tasks where docs help,
+    public-repo familiarity effect compresses baseline gap
+  - NOT a measurement bug: costs match, infrastructure works
+
+  STATUS: A13 PROVISIONAL. Benchmark infrastructure validated.
+  Measurement is working. But benchmarking v1 agent-docs is not
+  the right comparison — Phase B v2 docs need to be generated
+  first, then re-benchmarked. Deferring full A13 calibration
+  until after Phase B Layer 2 completion.)*
 - [ ] **A14.** Compare auto-benchmark results to the teammate's most
   recent external benchmark. Discrepancies are bugs in our measurement,
   not in the framework — fix them before continuing. Investigation
@@ -601,7 +637,21 @@ foundation that multi-repo cross-edge detection needs in Phase C.
   brief), LLM selected 14 files with architecturally specific reasons
   (db.py as foundation, users.py as central entity, chats.py as pattern
   exemplar, oauth_sessions.py for encryption pattern). 39 tests.
-  784/784 total pass.)* Full pipeline:
+  B14d complete: `generate_subsystem_doc()` feeds structural brief +
+  selected file contents to LLM via `claude -p --output-format text`.
+  System prompt: 10 required sections adapted from v1 template
+  (Modification Guide emphasized as most agent-valuable). File content
+  truncated at 15K chars/file. `save_subsystem_doc()` writes to
+  agent-docs/subsystems/{name}.md. 49 tests.
+  B14e complete: `synthesize_docs()` — three separate LLM calls
+  producing patterns.md, agent-context.md (≤120 lines),
+  agent-context-nano.md (≤40 lines). Each call gets directory
+  profiles + subsystem doc summaries. `save_synthesis()` writes
+  artifacts. Independent error handling per call. 56 tests.
+  840/840 total pass.
+  STATUS: B14 code-complete. All 5 sub-steps built. Needs CLI
+  orchestration command and real-repo validation (B15).)*
+  Full pipeline:
   1. **Subsystem detection (deterministic):** Directory-based clustering
      validated by graph edges (split disconnected dirs, merge tightly-
      coupled ones). Produces candidate subsystem list with structural
@@ -885,6 +935,7 @@ and users adopt it.
 | 2026-04-10 | **Subsystem detection: hybrid directory + graph, LLM-refined, human-confirmed** | Directory structure as starting point (human-intuitive names), graph edges to validate/correct (split disconnected dirs, merge tightly-coupled ones), LLM to refine (merge/split/name based on semantic understanding), human confirms via chat-first checkpoint. Skip Leiden for now — add as fallback for flat repos if needed. |
 | 2026-04-10 | **B14+B17 merged** | Both consume structure.json + graph.json for the LLM orchestration layer. B14 (deep-dive prompts) and B17 (structural graph into subsystem mapping) are the same pipeline: graph → subsystem boundaries → per-subsystem deep-dive. Splitting them was the pre-AST plan. |
 | 2026-04-10 | **Auto-updating agent-docs (D12)** | Docs become stale on every merge. Two-level refresh: structural (deterministic, near-zero cost on changed files) and doc-level (LLM re-evaluates affected subsystems when structural diff exceeds threshold). Deferred to Phase D. |
+| 2026-04-10 | **A13 provisional, defer full calibration to post-B14** | Benchmark infrastructure is validated (generation, execution, judging, parallelism all work). But benchmarking v1 agent-docs doesn't test the v2 pipeline. The right sequence: finish B14 (generate v2 docs from AST pipeline) → delete v1 docs → re-benchmark with v2 docs → compare to teammate. Measuring v1 docs tells us nothing about whether v2 is better. |
 
 ---
 

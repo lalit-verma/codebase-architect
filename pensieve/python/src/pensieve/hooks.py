@@ -203,3 +203,102 @@ def uninstall_hook(repo_root: Path) -> dict[str, str]:
         result["settings"] = "removed"
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# CLAUDE.md nano-digest wiring
+# ---------------------------------------------------------------------------
+
+_NANO_START = "<!-- pensieve:nano:start -->"
+_NANO_END = "<!-- pensieve:nano:end -->"
+
+
+def wire_nano_to_claudemd(repo_root: Path) -> dict[str, str]:
+    """Inline agent-context-nano.md into CLAUDE.md.
+
+    Reads the nano-digest from agent-docs/agent-context-nano.md and
+    inlines it into CLAUDE.md wrapped in section markers. If CLAUDE.md
+    already has a pensieve section, it is replaced. If CLAUDE.md doesn't
+    exist, it is created.
+
+    User content outside the markers is preserved.
+
+    Returns:
+        Dict with keys:
+          - nano: "inlined" | "not_found" (nano file missing)
+          - claudemd: "created" | "updated" | "unchanged"
+    """
+    result: dict[str, str] = {}
+
+    nano_path = repo_root / "agent-docs" / "agent-context-nano.md"
+    if not nano_path.exists():
+        result["nano"] = "not_found"
+        result["claudemd"] = "unchanged"
+        return result
+
+    nano_content = nano_path.read_text(encoding="utf-8").strip()
+    result["nano"] = "inlined"
+
+    section = f"{_NANO_START}\n{nano_content}\n{_NANO_END}"
+
+    claudemd_path = repo_root / "CLAUDE.md"
+
+    if not claudemd_path.exists():
+        claudemd_path.write_text(section + "\n", encoding="utf-8")
+        result["claudemd"] = "created"
+        return result
+
+    existing = claudemd_path.read_text(encoding="utf-8")
+
+    if _NANO_START in existing and _NANO_END in existing:
+        start_idx = existing.index(_NANO_START)
+        end_idx = existing.index(_NANO_END) + len(_NANO_END)
+        if end_idx < len(existing) and existing[end_idx] == "\n":
+            end_idx += 1
+        new_content = existing[:start_idx] + section + "\n" + existing[end_idx:]
+
+        if new_content.strip() == existing.strip():
+            result["claudemd"] = "unchanged"
+        else:
+            claudemd_path.write_text(new_content, encoding="utf-8")
+            result["claudemd"] = "updated"
+    else:
+        if not existing.endswith("\n"):
+            existing += "\n"
+        claudemd_path.write_text(
+            existing + "\n" + section + "\n",
+            encoding="utf-8",
+        )
+        result["claudemd"] = "updated"
+
+    return result
+
+
+def unwire_nano_from_claudemd(repo_root: Path) -> dict[str, str]:
+    """Remove the pensieve nano section from CLAUDE.md.
+
+    Returns:
+        Dict with keys:
+          - claudemd: "removed" | "not_found" | "no_section"
+    """
+    claudemd_path = repo_root / "CLAUDE.md"
+
+    if not claudemd_path.exists():
+        return {"claudemd": "not_found"}
+
+    existing = claudemd_path.read_text(encoding="utf-8")
+
+    if _NANO_START not in existing or _NANO_END not in existing:
+        return {"claudemd": "no_section"}
+
+    start_idx = existing.index(_NANO_START)
+    end_idx = existing.index(_NANO_END) + len(_NANO_END)
+    if end_idx < len(existing) and existing[end_idx] == "\n":
+        end_idx += 1
+    if start_idx > 0 and existing[start_idx - 1] == "\n":
+        start_idx -= 1
+
+    new_content = existing[:start_idx] + existing[end_idx:]
+    claudemd_path.write_text(new_content, encoding="utf-8")
+
+    return {"claudemd": "removed"}

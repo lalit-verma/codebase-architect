@@ -332,3 +332,173 @@ class TestCLI:
         result = main(["hook", "install", "--repo", str(tmp_path / "nope")])
         assert result == 1
         assert "not a directory" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# CLAUDE.md nano wiring
+# ---------------------------------------------------------------------------
+
+
+class TestWireNano:
+
+    def test_creates_claudemd_if_missing(self, tmp_path):
+        from pensieve.hooks import wire_nano_to_claudemd
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Nano\nQuick context.\n")
+
+        result = wire_nano_to_claudemd(repo)
+        assert result["nano"] == "inlined"
+        assert result["claudemd"] == "created"
+
+        content = (repo / "CLAUDE.md").read_text()
+        assert "# Nano" in content
+        assert "<!-- pensieve:nano:start -->" in content
+        assert "<!-- pensieve:nano:end -->" in content
+
+    def test_appends_to_existing_claudemd(self, tmp_path):
+        from pensieve.hooks import wire_nano_to_claudemd
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Nano\n")
+        (repo / "CLAUDE.md").write_text("# My Project\n\nExisting content.\n")
+
+        result = wire_nano_to_claudemd(repo)
+        assert result["claudemd"] == "updated"
+
+        content = (repo / "CLAUDE.md").read_text()
+        assert "Existing content." in content
+        assert "# Nano" in content
+
+    def test_replaces_existing_section(self, tmp_path):
+        from pensieve.hooks import wire_nano_to_claudemd
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Updated Nano\n")
+        (repo / "CLAUDE.md").write_text(
+            "# Project\n\n"
+            "<!-- pensieve:nano:start -->\n"
+            "# Old Nano\n"
+            "<!-- pensieve:nano:end -->\n"
+            "\nMore content.\n"
+        )
+
+        result = wire_nano_to_claudemd(repo)
+        assert result["claudemd"] == "updated"
+
+        content = (repo / "CLAUDE.md").read_text()
+        assert "# Updated Nano" in content
+        assert "# Old Nano" not in content
+        assert "More content." in content
+        assert content.count("<!-- pensieve:nano:start -->") == 1
+
+    def test_idempotent(self, tmp_path):
+        from pensieve.hooks import wire_nano_to_claudemd
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Nano\n")
+
+        wire_nano_to_claudemd(repo)
+        result = wire_nano_to_claudemd(repo)
+        assert result["claudemd"] == "unchanged"
+
+    def test_nano_not_found(self, tmp_path):
+        from pensieve.hooks import wire_nano_to_claudemd
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        result = wire_nano_to_claudemd(repo)
+        assert result["nano"] == "not_found"
+        assert result["claudemd"] == "unchanged"
+
+
+class TestUnwireNano:
+
+    def test_removes_section(self, tmp_path):
+        from pensieve.hooks import unwire_nano_from_claudemd
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "CLAUDE.md").write_text(
+            "# Project\n\n"
+            "<!-- pensieve:nano:start -->\n"
+            "# Nano\n"
+            "<!-- pensieve:nano:end -->\n"
+            "\nKeep this.\n"
+        )
+
+        result = unwire_nano_from_claudemd(repo)
+        assert result["claudemd"] == "removed"
+
+        content = (repo / "CLAUDE.md").read_text()
+        assert "Nano" not in content
+        assert "Keep this." in content
+
+    def test_no_claudemd(self, tmp_path):
+        from pensieve.hooks import unwire_nano_from_claudemd
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        result = unwire_nano_from_claudemd(repo)
+        assert result["claudemd"] == "not_found"
+
+    def test_no_section(self, tmp_path):
+        from pensieve.hooks import unwire_nano_from_claudemd
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "CLAUDE.md").write_text("# Project\nNo pensieve here.\n")
+        result = unwire_nano_from_claudemd(repo)
+        assert result["claudemd"] == "no_section"
+
+
+class TestWireCLI:
+
+    def test_wire_help(self, capsys):
+        from pensieve.cli import main
+        with pytest.raises(SystemExit) as exc_info:
+            main(["wire", "--help"])
+        assert exc_info.value.code == 0
+        assert "wire" in capsys.readouterr().out.lower()
+
+    def test_wire_missing_nano(self, capsys, tmp_path):
+        from pensieve.cli import main
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        result = main(["wire", "--repo", str(repo)])
+        assert result == 1
+        assert "not found" in capsys.readouterr().err.lower()
+
+    def test_wire_success(self, capsys, tmp_path):
+        from pensieve.cli import main
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Nano\n")
+
+        result = main(["wire", "--repo", str(repo)])
+        assert result == 0
+        assert (repo / "CLAUDE.md").exists()
+        assert (repo / ".claude" / "hooks" / "pensieve-pretooluse.sh").exists()
+
+    def test_unwire(self, capsys, tmp_path):
+        from pensieve.cli import main
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Nano\n")
+
+        # Wire first
+        main(["wire", "--repo", str(repo)])
+        # Then unwire
+        result = main(["wire", "--repo", str(repo), "--unwire"])
+        assert result == 0
+
+        content = (repo / "CLAUDE.md").read_text()
+        assert "pensieve:nano:start" not in content

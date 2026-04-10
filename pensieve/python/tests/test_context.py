@@ -23,13 +23,19 @@ from pensieve.context import (
     DirectoryProfile,
     FileSelection,
     RepoProfile,
+    SubsystemDoc,
     SubsystemMap,
     SubsystemProposal,
+    SynthesisResult,
     build_subsystem_brief,
+    generate_subsystem_doc,
     profile_directories,
     format_profiles_for_llm,
     propose_subsystems,
     format_subsystem_map,
+    save_subsystem_doc,
+    save_synthesis,
+    synthesize_docs,
     select_files_for_subsystem,
 )
 
@@ -756,3 +762,377 @@ class TestSelectFilesForSubsystem:
         select_files_for_subsystem(subsystem, sp)
         cmd = mock_run.call_args[0][0]
         assert "--json-schema" in cmd
+
+
+# ---------------------------------------------------------------------------
+# B14d: Deep-dive documentation generation
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateSubsystemDoc:
+
+    def _make_repo_with_files(self, tmp_path):
+        """Create a repo with structure.json and actual source files."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+
+        src = repo / "src" / "handlers"
+        src.mkdir(parents=True)
+        (src / "users.py").write_text(
+            "def get_users():\n    return []\n\n"
+            "def create_user(name):\n    pass\n"
+        )
+        (src / "posts.py").write_text(
+            "def get_posts():\n    return []\n"
+        )
+
+        sp = ad / "structure.json"
+        sp.write_text(json.dumps({
+            "repo_root": str(repo),
+            "files": [
+                _file("src/handlers/users.py", symbols=[_sym("get_users"), _sym("create_user")]),
+                _file("src/handlers/posts.py", symbols=[_sym("get_posts")]),
+            ],
+            "errors": [],
+            "extractor_version": "test",
+        }))
+
+        return repo, sp
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_successful_generation(self, mock_run, tmp_path):
+        repo, sp = self._make_repo_with_files(tmp_path)
+        mock_run.return_value = mock.MagicMock(
+            stdout="# Handlers\n\n## Why This Subsystem Exists\nHandles HTTP requests.\n",
+            stderr="",
+            returncode=0,
+        )
+
+        subsystem = SubsystemProposal(
+            name="Handlers", directories=["src/handlers"],
+            role="HTTP handlers", rationale="test",
+        )
+        selection = FileSelection(files=[
+            {"file_path": "src/handlers/users.py", "reason": "main handler"},
+        ])
+
+        doc = generate_subsystem_doc(subsystem, sp, selection, repo)
+
+        assert doc.error is None
+        assert "Handlers" in doc.markdown
+        assert doc.subsystem_name == "Handlers"
+        assert "src/handlers/users.py" in doc.files_read
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_prompt_contains_structural_brief(self, mock_run, tmp_path):
+        """The prompt should include the structural brief with all file symbols."""
+        repo, sp = self._make_repo_with_files(tmp_path)
+        mock_run.return_value = mock.MagicMock(
+            stdout="doc content", stderr="", returncode=0,
+        )
+
+        subsystem = SubsystemProposal(
+            name="Handlers", directories=["src/handlers"],
+            role="HTTP handlers", rationale="test",
+        )
+        selection = FileSelection(files=[
+            {"file_path": "src/handlers/users.py", "reason": "main"},
+        ])
+
+        generate_subsystem_doc(subsystem, sp, selection, repo)
+
+        # Check the prompt passed to claude
+        cmd = mock_run.call_args[0][0]
+        prompt = cmd[-1]  # instruction is last arg
+        assert "get_users" in prompt  # from structural brief
+        assert "def get_users" in prompt  # from file content
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_prompt_contains_file_content(self, mock_run, tmp_path):
+        repo, sp = self._make_repo_with_files(tmp_path)
+        mock_run.return_value = mock.MagicMock(
+            stdout="doc content", stderr="", returncode=0,
+        )
+
+        subsystem = SubsystemProposal(
+            name="Handlers", directories=["src/handlers"],
+            role="HTTP handlers", rationale="test",
+        )
+        selection = FileSelection(files=[
+            {"file_path": "src/handlers/users.py", "reason": "main"},
+        ])
+
+        generate_subsystem_doc(subsystem, sp, selection, repo)
+
+        cmd = mock_run.call_args[0][0]
+        prompt = cmd[-1]
+        # Full file content should be in the prompt
+        assert "return []" in prompt
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_uses_text_output_not_json(self, mock_run, tmp_path):
+        """Deep-dive should use --output-format text, not json."""
+        repo, sp = self._make_repo_with_files(tmp_path)
+        mock_run.return_value = mock.MagicMock(
+            stdout="doc content", stderr="", returncode=0,
+        )
+
+        subsystem = SubsystemProposal(
+            name="Handlers", directories=["src/handlers"],
+            role="HTTP handlers", rationale="test",
+        )
+        selection = FileSelection(files=[])
+
+        generate_subsystem_doc(subsystem, sp, selection, repo)
+
+        cmd = mock_run.call_args[0][0]
+        idx = cmd.index("--output-format")
+        assert cmd[idx + 1] == "text"
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_timeout_returns_error(self, mock_run, tmp_path):
+        import subprocess as sp_mod
+        repo, sp = self._make_repo_with_files(tmp_path)
+        mock_run.side_effect = sp_mod.TimeoutExpired(cmd=["claude"], timeout=300)
+
+        subsystem = SubsystemProposal(
+            name="Handlers", directories=["src/handlers"],
+            role="HTTP handlers", rationale="test",
+        )
+        selection = FileSelection(files=[])
+
+        doc = generate_subsystem_doc(subsystem, sp, selection, repo)
+
+        assert doc.error is not None
+        assert "timed out" in doc.error.lower()
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_nonzero_returncode(self, mock_run, tmp_path):
+        repo, sp = self._make_repo_with_files(tmp_path)
+        mock_run.return_value = mock.MagicMock(
+            stdout="", stderr="auth error", returncode=1,
+        )
+
+        subsystem = SubsystemProposal(
+            name="Handlers", directories=["src/handlers"],
+            role="HTTP handlers", rationale="test",
+        )
+        selection = FileSelection(files=[])
+
+        doc = generate_subsystem_doc(subsystem, sp, selection, repo)
+
+        assert doc.error is not None
+        assert "exited with code 1" in doc.error
+
+    @mock.patch("pensieve.context.subprocess.run")
+    def test_missing_file_handled(self, mock_run, tmp_path):
+        """Selected file that doesn't exist should not crash."""
+        repo, sp = self._make_repo_with_files(tmp_path)
+        mock_run.return_value = mock.MagicMock(
+            stdout="doc content", stderr="", returncode=0,
+        )
+
+        subsystem = SubsystemProposal(
+            name="Handlers", directories=["src/handlers"],
+            role="HTTP handlers", rationale="test",
+        )
+        selection = FileSelection(files=[
+            {"file_path": "src/handlers/nonexistent.py", "reason": "test"},
+            {"file_path": "src/handlers/users.py", "reason": "exists"},
+        ])
+
+        doc = generate_subsystem_doc(subsystem, sp, selection, repo)
+
+        assert doc.error is None
+        assert "src/handlers/users.py" in doc.files_read
+        assert "src/handlers/nonexistent.py" not in doc.files_read
+
+
+class TestSaveSubsystemDoc:
+
+    def test_saves_to_subsystems_dir(self, tmp_path):
+        doc = SubsystemDoc(
+            subsystem_name="API Routers",
+            markdown="# API Routers\n\nContent here.\n",
+            files_read=["src/routers/users.py"],
+        )
+        path = save_subsystem_doc(doc, tmp_path)
+
+        assert path.exists()
+        assert "subsystems" in str(path)
+        assert path.name == "api_routers.md"
+        assert "Content here" in path.read_text()
+
+    def test_creates_subsystems_dir(self, tmp_path):
+        doc = SubsystemDoc(
+            subsystem_name="Core",
+            markdown="# Core\n",
+            files_read=[],
+        )
+        output_dir = tmp_path / "deep" / "nested"
+        path = save_subsystem_doc(doc, output_dir)
+        assert path.exists()
+
+    def test_sanitizes_name(self, tmp_path):
+        doc = SubsystemDoc(
+            subsystem_name="Shared Utilities & Access Control",
+            markdown="# Content\n",
+            files_read=[],
+        )
+        path = save_subsystem_doc(doc, tmp_path)
+        assert "/" not in path.name
+        assert "&" not in path.name
+        assert " " not in path.name
+
+
+# ---------------------------------------------------------------------------
+# B14e: Synthesis
+# ---------------------------------------------------------------------------
+
+
+def _make_subsystem_docs():
+    """Create mock SubsystemDoc objects for synthesis tests."""
+    return [
+        SubsystemDoc(
+            subsystem_name="API Routers",
+            markdown=(
+                "# API Routers\n\n"
+                "## Why This Subsystem Exists\n"
+                "Handles all HTTP endpoints.\n\n"
+                "## Modification Guide\n"
+                "To add a new router: create in routers/, register in main.py.\n"
+                "Best template: routers/users.py\n\n"
+                "## Detected Patterns\n"
+                "Router pattern — example: routers/users.py, 5 files\n"
+            ),
+            files_read=["src/routers/users.py"],
+        ),
+        SubsystemDoc(
+            subsystem_name="Data Models",
+            markdown=(
+                "# Data Models\n\n"
+                "## Why This Subsystem Exists\n"
+                "SQLAlchemy ORM models.\n\n"
+                "## Modification Guide\n"
+                "To add a new model: create in models/, inherit Base.\n\n"
+                "## Detected Patterns\n"
+                "Model pattern — example: models/user.py, 8 files\n"
+            ),
+            files_read=["src/models/user.py"],
+        ),
+    ]
+
+
+def _make_simple_profile():
+    return RepoProfile(
+        repo_root="/tmp/repo",
+        total_files=20,
+        total_edges=50,
+        directories=[
+            DirectoryProfile(path="src/routers", file_count=5),
+            DirectoryProfile(path="src/models", file_count=8),
+        ],
+    )
+
+
+class TestSynthesizeDocs:
+
+    @mock.patch("pensieve.context._call_llm_text")
+    def test_produces_three_artifacts(self, mock_call):
+        mock_call.side_effect = [
+            ("# Patterns\n\nRouter pattern...", None),
+            ("# Agent Context\n\nWhat this repo is...", None),
+            ("# Nano\n\nQuick context...", None),
+        ]
+
+        result = synthesize_docs(_make_subsystem_docs(), _make_simple_profile())
+
+        assert result.patterns_md != ""
+        assert result.agent_context_md != ""
+        assert result.agent_context_nano_md != ""
+        assert len(result.errors) == 0
+        assert mock_call.call_count == 3
+
+    @mock.patch("pensieve.context._call_llm_text")
+    def test_one_failure_does_not_block_others(self, mock_call):
+        mock_call.side_effect = [
+            ("", "patterns.md timed out"),  # patterns fails
+            ("# Agent Context\n\nContent.", None),  # context succeeds
+            ("# Nano\n\nContent.", None),  # nano succeeds
+        ]
+
+        result = synthesize_docs(_make_subsystem_docs(), _make_simple_profile())
+
+        assert result.patterns_md == ""
+        assert result.agent_context_md != ""
+        assert result.agent_context_nano_md != ""
+        assert len(result.errors) == 1
+        assert "patterns.md" in result.errors[0]
+
+    @mock.patch("pensieve.context._call_llm_text")
+    def test_passes_subsystem_summaries(self, mock_call):
+        mock_call.return_value = ("output", None)
+
+        synthesize_docs(_make_subsystem_docs(), _make_simple_profile())
+
+        # All three calls should include subsystem content
+        for call in mock_call.call_args_list:
+            user_prompt = call[1].get("user_prompt") or call[0][1]
+            assert "API Routers" in user_prompt
+            assert "Data Models" in user_prompt
+
+    @mock.patch("pensieve.context._call_llm_text")
+    def test_passes_directory_profile(self, mock_call):
+        mock_call.return_value = ("output", None)
+
+        synthesize_docs(_make_subsystem_docs(), _make_simple_profile())
+
+        for call in mock_call.call_args_list:
+            user_prompt = call[1].get("user_prompt") or call[0][1]
+            assert "src/routers" in user_prompt
+
+
+class TestSaveSynthesis:
+
+    def test_saves_all_three_files(self, tmp_path):
+        result = SynthesisResult(
+            patterns_md="# Patterns\nContent.\n",
+            agent_context_md="# Agent Context\nContent.\n",
+            agent_context_nano_md="# Nano\nContent.\n",
+        )
+        paths = save_synthesis(result, tmp_path)
+
+        assert len(paths) == 3
+        names = {p.name for p in paths}
+        assert "patterns.md" in names
+        assert "agent-context.md" in names
+        assert "agent-context-nano.md" in names
+
+        for p in paths:
+            assert p.exists()
+            assert "Content" in p.read_text()
+
+    def test_skips_empty_artifacts(self, tmp_path):
+        result = SynthesisResult(
+            patterns_md="# Patterns\n",
+            agent_context_md="",  # empty — should be skipped
+            agent_context_nano_md="# Nano\n",
+        )
+        paths = save_synthesis(result, tmp_path)
+
+        assert len(paths) == 2
+        names = {p.name for p in paths}
+        assert "agent-context.md" not in names
+
+    def test_creates_output_dir(self, tmp_path):
+        result = SynthesisResult(
+            patterns_md="# P\n",
+            agent_context_md="# A\n",
+            agent_context_nano_md="# N\n",
+        )
+        nested = tmp_path / "deep" / "nested"
+        paths = save_synthesis(result, nested)
+        assert len(paths) == 3
+        assert nested.exists()

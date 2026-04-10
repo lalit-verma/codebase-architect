@@ -82,6 +82,54 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output directory (default: <repo>/agent-docs)",
     )
 
+    # --- analyze subcommand (B14) ---
+    analyze_parser = subparsers.add_parser(
+        "analyze",
+        help="Generate agent-docs from repo structure (full pipeline)",
+        description=(
+            "Run the full analysis pipeline: scan the repo, detect "
+            "subsystem boundaries, select key files per subsystem, "
+            "generate subsystem documentation, and synthesize "
+            "patterns.md, agent-context.md, and agent-context-nano.md. "
+            "Writes all output to agent-docs/."
+        ),
+    )
+    analyze_parser.add_argument(
+        "path", type=str, nargs="?", default=".",
+        help="Path to the repository root (default: current directory)",
+    )
+    analyze_parser.add_argument(
+        "--model", type=str, default="sonnet",
+        help="Model for LLM calls (default: sonnet)",
+    )
+    analyze_parser.add_argument(
+        "--output-dir", type=str, default=None,
+        help="Output directory (default: <repo>/agent-docs)",
+    )
+
+    # --- wire subcommand ---
+    wire_parser = subparsers.add_parser(
+        "wire",
+        help="Wire agent-docs into the repo (CLAUDE.md + hook)",
+        description=(
+            "Inline the nano-digest into CLAUDE.md and install the "
+            "PreToolUse hook. Run this after `pensieve analyze` to "
+            "make agent-docs visible to coding agents."
+        ),
+    )
+    wire_parser.add_argument(
+        "--repo", type=str, default=".",
+        help="Repository root (default: current directory)",
+    )
+    wire_parser.add_argument(
+        "--platform", type=str, default="claude", choices=["claude"],
+        help="Target platform (default: claude)",
+    )
+    wire_parser.add_argument(
+        "--unwire", action="store_true", default=False,
+        help="Remove pensieve wiring (undo wire).",
+    )
+
     # --- benchmark subcommand (A12) ---
     bench_parser = subparsers.add_parser(
         "benchmark",
@@ -256,6 +304,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "scan":
         return _cmd_scan(args)
+
+    if args.command == "analyze":
+        return _cmd_analyze(args)
+
+    if args.command == "wire":
+        return _cmd_wire(args)
 
     if args.command == "benchmark":
         return _cmd_benchmark(args)
@@ -504,6 +558,157 @@ def _cmd_scan(args) -> int:
     print(f"  → {result.structure_path}")
 
     return 0 if s["failed"] == 0 else 1
+
+
+def _cmd_analyze(args) -> int:
+    """Handle the `pensieve analyze` subcommand — full B14 pipeline."""
+    from pathlib import Path
+    from pensieve.scan import scan_repo
+    from pensieve.context import (
+        FileSelection,
+        profile_directories,
+        format_profiles_for_llm,
+        propose_subsystems,
+        format_subsystem_map,
+        build_subsystem_brief,
+        select_files_for_subsystem,
+        generate_subsystem_doc,
+        save_subsystem_doc,
+        synthesize_docs,
+        save_synthesis,
+    )
+
+    def _log(msg: str) -> None:
+        print(msg, flush=True)
+
+    repo_root = Path(args.path).resolve()
+    if not repo_root.is_dir():
+        print(f"pensieve analyze: not a directory: {repo_root}", file=sys.stderr)
+        return 1
+
+    model = args.model
+    output_dir = Path(args.output_dir) if args.output_dir else repo_root / "agent-docs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    structure_path = output_dir / "structure.json"
+    graph_path = output_dir / "graph.json"
+
+    # --- Stage 1: Scan (if needed) ---
+    if not structure_path.exists():
+        _log("[1/5] Scanning repo...")
+        result = scan_repo(repo_root, output_dir=output_dir)
+        s = result.stats
+        _log(f"  scanned {s['total_files']} files ({s['extracted']} extracted, {s['cached']} cached)")
+    else:
+        _log("[1/5] Scan: using existing structure.json")
+
+    # --- Stage 2: Profile directories + propose subsystems ---
+    _log("[2/5] Profiling directories and proposing subsystems...")
+    profile = profile_directories(structure_path, graph_path)
+    _log(f"  {len(profile.directories)} directories profiled, {profile.total_edges} edges")
+
+    smap = propose_subsystems(profile, model=model)
+    if smap.error:
+        print(f"pensieve analyze: subsystem proposal failed: {smap.error}", file=sys.stderr)
+        return 1
+
+    _log(f"  {len(smap.subsystems)} subsystems proposed:")
+    for s in smap.subsystems:
+        _log(f"    - {s.name} ({', '.join(s.directories)})")
+    if smap.excluded:
+        _log(f"  {len(smap.excluded)} directories excluded")
+
+    # --- Stage 3: Select files per subsystem ---
+    _log(f"[3/5] Selecting key files for {len(smap.subsystems)} subsystems...")
+    selections: dict[str, FileSelection] = {}
+    for i, sub in enumerate(smap.subsystems, 1):
+        sel = select_files_for_subsystem(sub, structure_path, model=model)
+        selections[sub.name] = sel
+        if sel.error:
+            _log(f"  {i}. {sub.name}: ERROR — {sel.error}")
+        else:
+            _log(f"  {i}. {sub.name}: {len(sel.files)} files selected")
+
+    # --- Stage 4: Generate subsystem docs ---
+    _log(f"[4/5] Generating subsystem documentation...")
+    docs = []
+    for i, sub in enumerate(smap.subsystems, 1):
+        sel = selections.get(sub.name, FileSelection(files=[]))
+        _log(f"  {i}/{len(smap.subsystems)} {sub.name}...")
+        doc = generate_subsystem_doc(
+            sub, structure_path, sel, repo_root, model=model,
+        )
+        docs.append(doc)
+        if doc.error:
+            _log(f"    ERROR: {doc.error}")
+        else:
+            path = save_subsystem_doc(doc, output_dir)
+            _log(f"    -> {path} ({len(doc.markdown)} chars, {len(doc.files_read)} files read)")
+
+    successful = [d for d in docs if not d.error]
+    failed = [d for d in docs if d.error]
+    _log(f"  {len(successful)} docs generated, {len(failed)} failed")
+
+    # --- Stage 5: Synthesize top-level artifacts ---
+    if not successful:
+        print("pensieve analyze: no subsystem docs generated, cannot synthesize.", file=sys.stderr)
+        return 1
+
+    _log(f"[5/5] Synthesizing patterns.md, agent-context.md, agent-context-nano.md...")
+    synthesis = synthesize_docs(successful, profile, model=model)
+    paths = save_synthesis(synthesis, output_dir)
+    for p in paths:
+        _log(f"  -> {p}")
+    if synthesis.errors:
+        for err in synthesis.errors:
+            _log(f"  WARNING: {err}")
+
+    # --- Summary ---
+    _log(f"\nAnalysis complete:")
+    _log(f"  subsystems: {len(successful)}/{len(smap.subsystems)}")
+    _log(f"  artifacts: {len(paths)} top-level files")
+    _log(f"  output: {output_dir}")
+
+    return 0
+
+
+def _cmd_wire(args) -> int:
+    """Handle `pensieve wire` — inline nano into CLAUDE.md + install hook."""
+    from pathlib import Path
+    from pensieve.hooks import (
+        install_hook, uninstall_hook,
+        wire_nano_to_claudemd, unwire_nano_from_claudemd,
+    )
+
+    repo_root = Path(args.repo).resolve()
+    if not repo_root.is_dir():
+        print(f"pensieve wire: not a directory: {repo_root}", file=sys.stderr)
+        return 1
+
+    if args.unwire:
+        # Undo wiring
+        nano_result = unwire_nano_from_claudemd(repo_root)
+        hook_result = uninstall_hook(repo_root)
+        print(f"Nano:     {nano_result['claudemd']}", flush=True)
+        print(f"Hook:     {hook_result.get('settings', 'unknown')}", flush=True)
+        return 0
+
+    # Wire: nano → CLAUDE.md + hook install
+    nano_result = wire_nano_to_claudemd(repo_root)
+    hook_result = install_hook(repo_root)
+
+    print(f"Nano:     {nano_result['nano']} -> CLAUDE.md {nano_result['claudemd']}", flush=True)
+    print(f"Hook:     script={hook_result['script']}, settings={hook_result['settings']}", flush=True)
+
+    if nano_result["nano"] == "not_found":
+        print(
+            "  WARNING: agent-docs/agent-context-nano.md not found.\n"
+            "  Run `pensieve analyze` first to generate it.",
+            file=sys.stderr,
+        )
+        return 1
+
+    return 0
 
 
 def _cmd_hook(args) -> int:

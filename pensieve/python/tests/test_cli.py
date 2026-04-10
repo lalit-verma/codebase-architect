@@ -118,3 +118,30 @@ class TestEntryPoint:
         )
         assert result.returncode == 0
         assert "usage" in result.stdout.lower()
+
+
+# ---------------------------------------------------------------------------
+# Analyze command (B14)
+# ---------------------------------------------------------------------------
+
+
+class TestAnalyzeCommand:
+
+    def test_analyze_help(self, capsys):
+        with pytest.raises(SystemExit) as exc_info:
+            main(["analyze", "--help"])
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "analyze" in captured.out.lower()
+
+    def test_analyze_listed_in_top_help(self, capsys):
+        with pytest.raises(SystemExit):
+            main(["--help"])
+        captured = capsys.readouterr()
+        assert "analyze" in captured.out.lower()
+
+    def test_nonexistent_repo_fails(self, capsys, tmp_path):
+        bad = str(tmp_path / "nope")
+        result = main(["analyze", bad])
+        assert result == 1
+        assert "not a directory" in capsys.readouterr().err
