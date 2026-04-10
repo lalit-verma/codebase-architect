@@ -103,27 +103,35 @@ def append_to_history(
     if content and not content.endswith("\n"):
         content += "\n"
 
-    # Check if the table header exists
-    has_table = _TABLE_HEADER_LINE in content
+    # Detect a valid table: header line immediately followed by separator.
+    # A header line without a separator is treated as prose, not a table.
+    lines = content.split("\n")
+    table_header_idx = -1
+    for i, line in enumerate(lines):
+        if line.strip() == _TABLE_HEADER_LINE.strip():
+            # Check that the next line is the separator
+            if i + 1 < len(lines) and lines[i + 1].strip() == _TABLE_SEPARATOR.strip():
+                table_header_idx = i
+                break
+
+    has_table = table_header_idx >= 0
 
     if has_table:
-        # Find the last table row (last line starting with |) and
-        # insert after it. This preserves any prose after the table.
-        lines = content.split("\n")
-        last_table_idx = -1
-        for i, line in enumerate(lines):
-            if line.startswith("|"):
+        # Find the last contiguous pipe-prefixed line in THIS table
+        # block (starting from the separator row). Stop at the first
+        # non-pipe line — don't jump over prose to a later pipe line.
+        last_table_idx = table_header_idx + 1  # separator row
+        for i in range(table_header_idx + 2, len(lines)):
+            if lines[i].startswith("|"):
                 last_table_idx = i
+            else:
+                break
 
-        if last_table_idx >= 0:
-            # Insert the new row after the last table line
-            lines.insert(last_table_idx + 1, row)
-            content = "\n".join(lines)
-            if not content.endswith("\n"):
-                content += "\n"
-        else:
-            # Header found but no rows yet — append after content
-            content += row + "\n"
+        # Insert the new row after the last table line
+        lines.insert(last_table_idx + 1, row)
+        content = "\n".join(lines)
+        if not content.endswith("\n"):
+            content += "\n"
     else:
         # No table header — add header + separator + row
         content += "\n" + _TABLE_HEADER_LINE + "\n" + _TABLE_SEPARATOR + "\n" + row + "\n"

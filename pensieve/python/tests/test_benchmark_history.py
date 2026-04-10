@@ -235,3 +235,98 @@ class TestAppendToHistory:
         pass_pos = content.index("**PASS**")
         notes_pos = content.index("## Notes")
         assert pass_pos < notes_pos, "New row should be inside the table, before the notes"
+
+    # --- Regression tests for review round: table-block detection ---
+
+    def test_header_without_separator_not_treated_as_table(self, tmp_path):
+        """A file containing the header line but no separator should NOT
+        be treated as having a valid table. A new table header+separator
+        should be inserted before the row."""
+        path = tmp_path / "benchmark-history.md"
+        path.write_text(
+            "Notes mentioning header text only\n"
+            "| Date | Verdict | Cost \u0394 | Lenient \u0394 | Quality \u0394 | Tokens \u0394 | Time \u0394 | Tasks |\n"
+        )
+
+        append_to_history(_make_report(), path, timestamp="2026-04-10 14:00")
+
+        content = path.read_text()
+        # The old header-only line is preserved as prose
+        assert "Notes mentioning header text only" in content
+        # A proper separator row should now exist
+        assert "|------|" in content
+        # The new row is present
+        assert "**PASS**" in content
+        # The separator should be adjacent to the new header line
+        lines = content.strip().split("\n")
+        for i, line in enumerate(lines):
+            if line.strip().startswith("|------"):
+                # Previous line should be the header
+                assert "| Date |" in lines[i - 1]
+                break
+        else:
+            pytest.fail("No separator line found")
+
+    def test_pipe_in_prose_after_table_not_confused(self, tmp_path):
+        """Pipe-prefixed lines in prose AFTER the table should not
+        cause the new row to be inserted there instead of in the table."""
+        path = tmp_path / "benchmark-history.md"
+        path.write_text(
+            "# Benchmark History\n\n"
+            "| Date | Verdict | Cost \u0394 | Lenient \u0394 | Quality \u0394 | Tokens \u0394 | Time \u0394 | Tasks |\n"
+            "|------|---------|--------|-----------|-----------|----------|--------|-------|\n"
+            "| old | **MIXED** | 0% | 0pp | 0 | 0% | 0% | 0 |\n"
+            "\n"
+            "## Notes\n\n"
+            "| not a benchmark row | still prose-ish |\n"
+        )
+
+        append_to_history(_make_report(verdict="PASS"), path, timestamp="2026-04-11 10:00")
+
+        content = path.read_text()
+        lines = content.split("\n")
+
+        # Find the new PASS row position and the prose pipe line position
+        pass_line_idx = None
+        prose_pipe_idx = None
+        for i, line in enumerate(lines):
+            if "**PASS**" in line:
+                pass_line_idx = i
+            if "not a benchmark row" in line:
+                prose_pipe_idx = i
+
+        assert pass_line_idx is not None, "PASS row not found"
+        assert prose_pipe_idx is not None, "Prose pipe line not found"
+        assert pass_line_idx < prose_pipe_idx, (
+            f"New row (line {pass_line_idx}) should be BEFORE the prose "
+            f"pipe line (line {prose_pipe_idx})"
+        )
+
+    def test_two_tables_only_appends_to_benchmark_table(self, tmp_path):
+        """If the file contains two pipe tables, the row should be
+        appended to the benchmark table (the one with the known header),
+        not the second unrelated table."""
+        path = tmp_path / "benchmark-history.md"
+        path.write_text(
+            "# Benchmark History\n\n"
+            "| Date | Verdict | Cost \u0394 | Lenient \u0394 | Quality \u0394 | Tokens \u0394 | Time \u0394 | Tasks |\n"
+            "|------|---------|--------|-----------|-----------|----------|--------|-------|\n"
+            "| old | **MIXED** | 0% | 0pp | 0 | 0% | 0% | 0 |\n"
+            "\n"
+            "## Other data\n\n"
+            "| Metric | Value |\n"
+            "|--------|-------|\n"
+            "| foo    | bar   |\n"
+        )
+
+        append_to_history(_make_report(verdict="PASS"), path, timestamp="2026-04-11 10:00")
+
+        content = path.read_text()
+
+        # The PASS row should appear in the benchmark table, not the other table
+        pass_pos = content.index("**PASS**")
+        other_pos = content.index("## Other data")
+        assert pass_pos < other_pos, "New row should be in the benchmark table, before the other table"
+
+        # The other table should be unchanged
+        assert "| foo    | bar   |" in content

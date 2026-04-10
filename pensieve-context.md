@@ -13,9 +13,14 @@
    doubt, PLAN.md wins.**
 2. **`pensieve/README.md`** — directory layout for v2 and the rationale
    for why v2 exists alongside v1.
-3. **This file** — everything not in PLAN.md.
-4. **Pick the next pending milestone in PLAN.md** and execute it.
-5. **Update PLAN.md** as you work: tick the milestone checkbox `[x]`,
+3. **`builder-agent-ethics.md`** — operating guidelines for all agent
+   work on this project. Treat code/tests/schema/plan as separate
+   contracts, don't mark complete because happy-path tests pass, prefer
+   smaller correct slice, add regression tests for realistic edge cases,
+   assume work will be audited.
+4. **This file** — everything not in PLAN.md.
+5. **Pick the next pending milestone in PLAN.md** and execute it.
+6. **Update PLAN.md** as you work: tick the milestone checkbox `[x]`,
    add a one-line completion note in the milestone bullet, append to
    the Phase Notes section, and update the Status header at the top.
 
@@ -60,6 +65,32 @@
 - `feedback_options_format.md`: when presenting choices, include
   trade-offs and a recommended pick.
 
+---
+
+## Current state (as of 2026-04-10)
+
+### Progress summary
+
+| Phase | Status | Milestones |
+|---|---|---|
+| **A** Hooks + auto-benchmark | A1-A11 complete, A12-A15 remaining | Hook installer, benchmark templates, runner, metrics, history done |
+| **B** AST extraction | Layer 1 complete (B1-B13), Layer 2 pending (B14-B17) | 6-language extractors, schema, cache, scanner, cross-file graph done |
+| **C** Multi-repo | Not started | |
+| **D** MCP, polish, distribution | Not started | |
+
+### Test coverage
+
+- **657 test functions** across **31 test files**
+- All passing (verified at each milestone)
+- Includes regression tests from 8+ review rounds with Codex as external reviewer
+
+### Next milestone: A12
+
+`pensieve benchmark run` CLI — wires the benchmark runner, metrics
+aggregation, and history generator into the CLI entry point.
+
+---
+
 ## The two-line history
 
 v1 was a markdown-based codebase documentation generator. Benchmarks
@@ -90,25 +121,20 @@ The cost regression in v1's full-load wiring was almost certainly
 has 1M. When the agent loaded `agent-context.md` + multiple subsystem
 docs + `patterns.md` + `decisions.md`, the conversation accumulated past
 ~200K within a few turns and the provider fell back to Sonnet (which
-costs ~5× more per token).
-
-The without-docs baseline runs stayed under 200K and used Haiku throughout.
+costs ~5x more per token).
 
 **Implication:** any wiring that puts agent-docs content into main-thread
-context will eventually trigger fallback. The fix is **not** to put
-docs in main-thread context. The fix is to inline only the load-bearing
-content into the system prompt (where it's paid for once and never
-accumulates) and use harness-enforced wiring (PreToolUse hooks) to
+context will eventually trigger fallback. The fix is to inline only the
+load-bearing content into the system prompt (where it's paid for once and
+never accumulates) and use harness-enforced wiring (PreToolUse hooks) to
 remind the agent of the rest.
 
 ### The quality mechanism: pattern fidelity on the writer
 
-The Medium-bucket benchmark win in v1's full-load runs (lenient pass
-70% vs baseline 70%, strict pass 30% vs 20%) came from the **main
-thread internalizing pattern conventions** before generating code. When
-patterns were the actual text in the agent's context, the writer
-reproduced them with verbatim fidelity — variable names, error handling
-style, ordering.
+The Medium-bucket benchmark win in v1's full-load runs came from the
+**main thread internalizing pattern conventions** before generating code.
+When patterns were the actual text in the agent's context, the writer
+reproduced them with verbatim fidelity.
 
 When the explore-routing experiment moved doc reads into a subagent,
 the main thread saw only summaries of patterns. Strict pass on Medium
@@ -119,145 +145,211 @@ fell from 30% to 10%; lenient pass collapsed from 70% to 30%.
 to do this without triggering long-context fallback is to inline them
 into the system prompt, where they're paid for once and never accumulate.
 
-### Why "lean wiring" didn't help either
-
-Between full-load and explore-routing, v1 tried "lean wiring" — fewer
-docs read at session start, conditional reads. It produced essentially
-the same model mix as full-load (still triggered fallback) because the
-agent still loaded enough content over the session to push past 200K.
-**The trigger isn't ritual phrasing; it's accumulated tokens.**
+---
 
 ## Benchmark history — the numbers
 
 Three benchmarks were run on the same 30-task suite (10 Easy, 10
-Medium, 10 Difficult) on the same calibration repo. We don't have the
-calibration repo's name in this conversation — see "Open questions"
-below.
+Medium, 10 Difficult) on the same calibration repo.
 
 | Run | Avg tokens | Avg cost | Avg time | Quality | Lenient pass | Verdict |
 |---|---|---|---|---|---|---|
-| **Full-load wiring (original)** | 1.57M | $1.07 | 3.59m | 7.17 | 46.7% | Cost +11%, lenient −3.3pp vs baseline |
+| **Full-load wiring (original)** | 1.57M | $1.07 | 3.59m | 7.17 | 46.7% | Cost +11%, lenient -3.3pp vs baseline |
 | **Lean wiring (post-Step1-5 ritual cut)** | similar | similar | similar | similar | similar | No meaningful change vs full-load |
-| **Explore-routed (subagent reads docs)** | 1.80M | $0.843 | 4.16m | 6.83 | 36.7% | Cost −13% (real win) but tokens +2%, quality −0.47, lenient −13.3pp |
+| **Explore-routed (subagent reads docs)** | 1.80M | $0.843 | 4.16m | 6.83 | 36.7% | Cost -13% but tokens +2%, quality -0.47, lenient -13.3pp |
 | **Baseline (no agent-docs at all)** | 1.76M | $0.965 | 3.75m | 7.30 | 50.0% | Reference |
+| **Hybrid wiring v3 (nano + hook)** | ~1.67M | $0.861 | ~3.38m | 7.50 | 56.6% | tokens -5%, cost tied, time -10%, quality +0.20, lenient +6.6pp |
 
-**Key observation:** baseline beats every wiring variant on lenient pass
-and on quality. Cost wins only come at quality cost.
+**Key result:** Hybrid wiring v3 beats baseline on ALL axes. This
+validated Phase A's proceed criterion and green-lit Phase B.
 
-**The Medium bucket is where the framework's value is concentrated:**
-- Full-load Medium: lenient 70% vs baseline 70% (tied), strict 30% vs 20% (+10pp)
-- Lean Medium: similar to full-load
-- Explore-routed Medium: lenient **30%** vs 70% (−40pp collapse), strict 10% vs 20%
+---
 
-The Medium-bucket collapse on explore-routing is the single most
-important data point. It proves pattern fidelity on the writer is
-load-bearing for quality.
+## What's been built (Layer 1 Python package)
+
+### Package structure
+
+```
+pensieve/python/
+  pyproject.toml                    hatchling build, code-pensieve package
+  src/pensieve/
+    __init__.py                     package root
+    __main__.py                     python -m pensieve entry
+    _version.py                     EXTRACTOR_HASH (SHA256 of extractors + schema)
+    cli.py                          argparse CLI with subcommands
+    schema.py                       8 dataclasses, validate_extraction()
+    cache.py                        ExtractionCache (SHA256+ext key, EXTRACTOR_HASH invalidation)
+    scan.py                         scan_repo() with os.walk pruning, error channel
+    graph.py                        build_graph() — import/call/test edges
+    hooks.py                        install_hook()/uninstall_hook() for Claude Code
+    extractors/
+      __init__.py                   lazy-loading registry, 11 extensions
+      _comments.py                  shared rationale comment extraction
+      python.py                     Python extractor
+      javascript.py                 JS extractor (.js/.mjs/.cjs)
+      typescript.py                 TS extractor (.ts/.tsx), extends JS
+      go.py                         Go extractor
+      java.py                       Java extractor
+      rust.py                       Rust extractor
+    benchmark/
+      __init__.py
+      template.py                   TaskTemplate + CheckerSpec + validate_template()
+      tasks.py                      5 task templates with parameterized instructions
+      runner.py                     PlaceholderFiller, run_task, run_benchmark
+      metrics.py                    ModeStats, Deltas, compute_verdict, aggregate_metrics
+      history.py                    append_to_history() markdown table generator
+  tests/
+    conftest.py
+    test_cli.py                     CLI smoke tests
+    test_tree_sitter.py             tree-sitter import and basic parsing
+    test_language_parsers.py        6-language parser verification
+    test_schema.py                  schema validation, round-trip, edge cases
+    test_extractor_python.py        Python extractor
+    test_extractor_javascript.py    JS extractor
+    test_extractor_typescript.py    TS extractor
+    test_extractor_go.py            Go extractor
+    test_extractor_java.py          Java extractor
+    test_extractor_rust.py          Rust extractor
+    test_comments.py                rationale comment extraction
+    test_cache.py                   cache layer
+    test_scan.py                    scanner
+    test_graph.py                   cross-file graph builder
+    test_hooks.py                   hook install/uninstall
+    test_benchmark_template.py      template format and validation
+    test_benchmark_tasks.py         5 task templates
+    test_benchmark_runner.py        runner integration
+    test_benchmark_modes.py         mode isolation
+    test_benchmark_metrics.py       metrics aggregation + verdict
+    test_benchmark_history.py       history generator
+    test_anon_default_export.py     anonymous callable default exports
+    test_reexports.py               JS/TS re-export import edges
+    test_type_import_and_default_ts.py  TS-specific type import + default export
+    test_codex_review_fixes.py      regression tests from Codex reviews
+    test_review_round2_fixes.py     round 2 review regressions
+    test_review_round3_fixes.py     round 3 review regressions
+    test_phase_b_review_fixes.py    Phase B review regressions
+    test_final_b_review.py          final Phase B review regressions
+    test_a8_a9_review_fixes.py      A8/A9 review regressions
+    test_phase_a_review_fixes.py    Phase A review regressions
+```
+
+### Key architectural decisions in the code
+
+**Extractors:**
+- Multi-pass architecture (declarations -> call edges -> comments)
+- Lazy-loading registry: one broken module doesn't take down others
+- 11 extensions: .py .js .mjs .cjs .ts .tsx .go .java .rs
+- `self.method()` / `this.method()` calls stripped to just `method`
+- Namespace imports: `names=["*"]` (distinguishes from default imports)
+- Anonymous callable defaults: `Export(name="<default>")`, no synthetic Symbol
+- Named-import aliases tracked as separate Import records for graph resolution
+
+**Graph (`graph.py`):**
+- Module resolution: absolute, dotted, relative (Python + JS/TS path-style)
+- Ambiguous stems -> no edge (not a wrong edge). No false positives.
+- Import edges: module-level, deduped by (source, target)
+- Call edges: function-level, NOT deduped
+- Test edges: module-level, deduped. Test->test imports filtered
+- Default-import calls: only when target has callable default export
+- Type-only imports (`import_type`) excluded from call resolution
+- `import_count` = unique modules, not Import records
+
+**Cache (`cache.py`):**
+- Key: `{sha256}_{ext}.json` (same content, different lang = separate entries)
+- Invalidation: EXTRACTOR_HASH (SHA256 of all extractor + schema source files)
+- Invalid entries -> cache miss + warning, not crash
+
+**Benchmark:**
+- Mode isolation via `shutil.copytree` — original repo never modified
+- PlaceholderFiller reads `structure.json`, excludes test dirs from heuristics
+- Verdict: PASS (cost <= baseline AND lenient >= baseline+5pp AND quality >= baseline AND no errors), FAIL (cost > 105% AND lenient < baseline), MIXED (everything else)
+- Task breakdown: index-based pairing, preserves duplicate template instances
+- History: appends row to existing markdown table, preserves prose around table
+
+**Hooks (`hooks.py`):**
+- Writes PreToolUse hook to `.claude/settings.json`
+- Uses `hookSpecificOutput.additionalContext` JSON mechanism (NOT stdout)
+- Identity by exact command match (`_OUR_COMMAND`), not substring
+
+---
 
 ## graphify deepdive — what we adopted
 
 Lalit pointed me at `/Users/lalit.verma@zomato.com/Desktop/tinkering/graphify-3`,
-a Python skill that solves a similar problem (give coding agents
-pre-built context to navigate codebases) with a fundamentally different
-architecture. Key findings shape v2:
+a Python skill that solves a similar problem with a different architecture.
 
-### Things we're adopting from graphify
+### Adopted from graphify
 
 | What | Why | Phase |
 |---|---|---|
-| **PreToolUse hook in `.claude/settings.json`** that fires on `Glob\|Grep` and reminds the agent the docs exist | Harness-enforced wiring is structurally stronger than CLAUDE.md instructions because it doesn't rely on agent compliance. Cost is ~30 tokens per Glob/Grep, only when docs exist. | A |
-| **AST-first extraction with tree-sitter** | LLM tokens spent on enumeration (functions, classes, imports, calls) is paying retail for wholesale work. Free, deterministic, perfect recall. graphify's measured 71.5× token reduction came primarily from this. | B |
-| **SHA256 incremental cache** | Re-runs only re-process changed files. Makes auto-rebuild on commits viable. | B |
-| **Auto-measured benchmark per run** | graphify prints token reduction at the end of every run. We need this to catch regressions on every repo, not via external benchmarks weeks later. | A |
-| **Worked examples with honest `review.md` files** | They ship `worked/karpathy-repos/review.md` listing what the graph got right AND wrong. Trust comes from publishing failure modes alongside wins. | D |
-| **Continuous confidence scores (0.0–1.0) on inferred edges** | More expressive than 4-tier categorical labels. Filterable, sortable, threshold-able. | D |
-| **MCP server for structured runtime queries** | Agents can query the artifact directly without reading markdown. | D |
-| **Multi-platform skill files generated from a single source** | We currently hand-maintain Claude Code / Codex / Cursor variants. They drift. | D |
+| **PreToolUse hook in `.claude/settings.json`** | Harness-enforced wiring, ~30 tokens per Glob/Grep, only when docs exist | A (done) |
+| **AST-first extraction with tree-sitter** | 71.5x token reduction vs LLM extraction. Free, deterministic, perfect recall | B (Layer 1 done) |
+| **SHA256 incremental cache** | Re-runs only re-process changed files | B (done) |
+| **Auto-measured benchmark per run** | Catch regressions per-repo, not via external benchmarks weeks later | A (partially done, A12 next) |
+| **Worked examples with honest `review.md` files** | Trust comes from publishing failure modes alongside wins | D |
+| **Continuous confidence scores (0.0-1.0)** | More expressive than categorical labels | B (done, on call edges) |
+| **MCP server for structured runtime queries** | Agents query artifact directly without reading markdown | D |
+| **Multi-platform skill files from single source** | Prevent drift across Claude Code / Codex / Cursor variants | D |
 
-### Things we're explicitly NOT adopting from graphify
+### NOT adopted from graphify
 
 | What | Why not |
 |---|---|
-| Multi-modal extraction (PDFs, images, screenshots) | graphify is for the "/raw folder" use case (papers + tweets + diagrams + code). We're a code framework. Scope creep. |
-| Leiden community detection / graph topology clustering | Our subsystem identification is human-confirmed and produces named architectural concepts. Algorithmic clustering loses human-meaningful naming. |
-| Persistent graph + query DSL as the primary output shape | Different paradigm. We keep markdown as the human-readable view + JSON as the structured store. |
-| `--watch` mode | Our re-run cadence is per-major-refactor, not live sync. |
-| Hyperedges / embeddings / BFS subgraph queries | Graph-shape features. Our markdown shape doesn't need them. |
+| Multi-modal extraction (PDFs, images) | We're a code framework. Scope creep. |
+| Leiden community detection / graph clustering | Our subsystem identification is human-confirmed with named architectural concepts |
+| Persistent graph + query DSL as primary output | Different paradigm. We keep markdown + JSON |
+| `--watch` mode | Our re-run cadence is per-major-refactor, not live sync |
+| Hyperedges / embeddings / BFS subgraph queries | Graph-shape features our markdown shape doesn't need |
 
-### Things our framework has that graphify doesn't (the moat we're keeping)
+### Our moat (things graphify doesn't have)
 
 | What | Why it matters |
 |---|---|
-| **Pattern recipes** ("To add a new handler: 1. Create `path/x.go` following `path/y.go` 2. Register in `file:line` 3. ...") | The Medium-bucket benchmark win came from this. Tells the writer how to extend, not just what exists. graphify shows topology; we show recipes. |
-| **`Conventions` section** with file references | "This codebase uses `Result<T, AppError>` for errors (see `src/errors.ts`)" — uncaptured by graphify. |
-| **`Do NOT` / anti-patterns list** | "Do not edit `api-gen/` — it's regenerated." graphify won't catch this. |
-| **`decisions.md` for architectural trade-offs** | First-class structure for "we chose X over Y because Z." graphify has rationale nodes from comments but no dedicated trade-off structure. |
-| **Chat-first checkpoint** with human-confirmed subsystem boundaries | Catches misclassification before any durable doc is written. graphify trusts its extractor; we don't. |
+| **Pattern recipes** | The Medium-bucket benchmark win. Tells the writer how to extend, not just what exists |
+| **`Conventions` section with file references** | Uncaptured by topology-only analysis |
+| **`Do NOT` / anti-patterns list** | Prevents common mistakes graphify can't detect |
+| **`decisions.md` for architectural trade-offs** | First-class trade-off structure vs comment-only rationale |
+| **Chat-first checkpoint** | Catches misclassification before durable docs are written |
 
-## v1 → v2 transition state
+---
 
-### What v1 ships today (preserved as fallback)
+## v1 -> v2 transition state
 
 v1 lives in the same repo at `shared/`, `claude-code/`, `codex/`,
 `cursor/`. **Don't touch these directories** unless explicitly asked —
 they're the fallback if v2 stumbles.
 
-Recent v1 changes (already shipped, do not redo):
-
-- **Hybrid wiring** (lean wiring → hybrid wiring with inlined nano + Explore enrichment)
-  - `shared/templates/agent-protocol-template.md` rewritten for hybrid wiring
-  - `claude-code/commands/analyze-synthesize.md` adds Step 1c/1d for nano-digest generation
-  - `codex/prompts/3-synthesize.md` mirrors the same change
-  - `cursor/SKILL.md` mirrors it
-  - `shared/protocol.md` and `shared/docs-schema.md` updated with nano-digest in the output schema
-  - `README.md` rewired with hybrid instructions and "Why hybrid wiring" rationale
-  - `eval/eval-output.md` Dimension 5 rewritten to evaluate hybrid wiring instead of the old 5-step protocol
-  - `eval/eval-toolkit.md` framework-self-check updated
-- **New v1 files:**
-  - `shared/templates/agent-context-nano-template.md` — the nano-digest template
-  - `shared/references/nano-context-rules.md` — generation rules for the nano
-
-The v1 hybrid wiring ships an `agent-context-nano.md` file (≤40 lines)
+The v1 hybrid wiring ships an `agent-context-nano.md` file (<=40 lines)
 that's a strict subset of `agent-context.md`, designed to be pasted
 directly into CLAUDE.md / AGENTS.md / .cursorrules. This format carries
 forward to v2 — the nano-digest design is good, the issue v1 had was
 that it didn't ALSO ship a PreToolUse hook to remind agents the rest of
 the docs exist.
 
-### What v2 will replace
-
-The whole approach to extraction (Phase 2 deep dives that have the LLM
-read every file) is being replaced by AST extraction + LLM
-interpretation. The 13-file output sprawl is being reduced to 4 main
-artifacts (see PLAN.md "Output schema").
-
-The slash-command-only distribution model is being replaced by a
-pip-installable Python package with slash commands as thin wrappers.
+---
 
 ## Active open questions (need user input before some milestones)
 
-These are unresolved at the time of this dump and may block specific
-milestones. Don't assume answers — ask Lalit when you hit them.
-
 | Question | Blocks | Notes |
 |---|---|---|
-| **Name and path of the calibration repo** | A13 (run auto-benchmark on calibration repo) | Same repo + same 30 tasks the teammate has been benchmarking externally. Lalit hasn't named it in conversation yet. |
-| **Teammate's contact / coordination protocol** | A14 (compare auto-benchmark to teammate's external) | Need the teammate's most recent benchmark numbers to validate against. |
-| **Whether to commit at each milestone or batch commits** | Any time after a milestone completes | Lalit has been offered both. No standing preference. Default: ask before committing. |
-| **PyPI package name reservation timing** | D8 | Decision deferred until after Phase C. Internal-first for A–B. |
+| **Name and path of the calibration repo** | A13 | Same repo + same 30 tasks the teammate has been benchmarking externally |
+| **Teammate's contact / coordination protocol** | A14 | Need the teammate's most recent benchmark numbers to validate against |
+| **PyPI package name reservation timing** | D8 | Decision deferred until after Phase C. Internal-first for A-B |
 
 ## Things explicitly decided against (don't re-litigate)
 
 | Rejected | Reason |
 |---|---|
-| 5-step "before every task" loading ritual ("Step 1: read X. Step 2: identify subsystem. Step 5: confirm understanding before writing code.") | Tested in v1's first wiring iteration. Triggered cost regression with no quality gain. |
-| "Quote the specific pattern from patterns.md" requirement | Forced extra reasoning turns without improving pass rate. Cut. |
-| "Do not skip steps. Do not start writing code until you have read X" framing | Cost driver, not quality driver. |
-| Pure subagent routing for all doc reads | Tested in v1's third wiring iteration (explore-routed). Fixed cost but tanked Medium-bucket lenient pass from 70% to 30% via summarization fidelity loss. |
-| Reading agent-docs/ files from the main thread | Triggers long-context fallback. The main thread only ever sees the inlined nano-digest (in the system prompt) and reminders from the PreToolUse hook. Deeper docs go through Explore subagents. |
-| Time-boxed phases / week estimates | Lalit pushed back. Plan is milestone-driven with proceed criteria. |
-| Embeddings / vector search | graphify doesn't use them either. Graph topology + AST structure is enough. |
-| Auto-running the benchmark in Phase 3 by default | Cost ($0.50–$2 per run) + time. Opt-in via `--benchmark` flag. |
-| 3 months of focused work framing | Lalit specifically called this out. Plan in milestones, not time. |
+| 5-step "before every task" loading ritual | Tested in v1. Triggered cost regression with no quality gain |
+| "Quote the specific pattern from patterns.md" requirement | Forced extra reasoning turns without improving pass rate |
+| "Do not skip steps" framing | Cost driver, not quality driver |
+| Pure subagent routing for all doc reads | Fixed cost but tanked Medium-bucket lenient pass from 70% to 30% |
+| Reading agent-docs/ files from the main thread | Triggers long-context fallback |
+| Time-boxed phases / week estimates | Lalit pushed back. Milestone-driven |
+| Embeddings / vector search | Graph topology + AST structure is enough |
+| Auto-running benchmark by default | Cost ($0.50-$2 per run). Opt-in via `--benchmark` flag |
+
+---
 
 ## Critical gotchas that will surprise a fresh agent
 
@@ -268,200 +360,104 @@ milestones. Don't assume answers — ask Lalit when you hit them.
    reminder.
 
 2. **The Medium bucket is the canary.** Watch lenient pass rate on Medium-
-   difficulty tasks. If it drops, pattern fidelity has been broken
-   somewhere in the pipeline. This was the early warning we missed in v1.
+   difficulty tasks. If it drops, pattern fidelity has been broken.
 
 3. **The PreToolUse hook is harness-enforced, not LLM-instructed.** It's
-   installed in `.claude/settings.json`, fires before Glob/Grep, and
-   echoes a one-line reminder. The agent doesn't choose to trigger it.
-   This is mechanically different from CLAUDE.md instructions and you
-   should think of it as a fundamentally stronger wiring primitive.
+   installed in `.claude/settings.json`, fires before Glob/Grep, and uses
+   `hookSpecificOutput.additionalContext` JSON. The agent doesn't choose
+   to trigger it.
 
 4. **AST extraction is free; LLM extraction is expensive AND worse.**
-   When in doubt about who should do work, default to: "if it can be
-   extracted by tree-sitter, the LLM should not be doing it."
+   Default to: "if it can be extracted by tree-sitter, the LLM should
+   not be doing it."
 
 5. **The chat-first checkpoint is preserved from v1.** Even with AST
    extraction, the user must confirm the subsystem map before any
-   durable doc is written. graphify doesn't do this. We do, because
-   algorithmic clustering produces wrong-but-confident boundaries on a
-   meaningful fraction of repos.
+   durable doc is written.
 
 6. **Two load-bearing artifacts: nano + patterns.** Everything else is
-   either supporting these or human-readable secondary docs. If a new
-   feature doesn't help the nano or the patterns, it probably doesn't
-   belong.
+   either supporting these or human-readable secondary docs.
 
 7. **v1 directories are FALLBACK, not legacy.** Don't refactor or "clean
-   up" `shared/`, `claude-code/`, `codex/`, `cursor/`. They're the
-   working escape hatch if v2 stumbles. Touching them risks our
-   ability to fall back.
+   up" `shared/`, `claude-code/`, `codex/`, `cursor/`.
 
 8. **Lalit's teammate is doing external benchmarks in parallel.** Don't
-   assume our auto-benchmark replaces theirs. In Phase A specifically,
-   their external benchmark is the QA layer that catches measurement
-   bugs in our auto-benchmark. The two should converge within ~10% on
-   the same calibration repo before we trust the auto-benchmark alone.
+   assume our auto-benchmark replaces theirs. The two should converge
+   within ~10% before we trust the auto-benchmark alone.
 
-## Operational guidance (how to actually do the work)
+9. **Review-driven development.** Every milestone gets reviewed by Codex
+   as an external reviewer. Regression tests are added for every finding.
+   This is why the test count is high relative to the code volume.
+
+10. **builder-agent-ethics.md is an operating guideline.** Treat it as a
+    contract, not advice. Key rules: code and tests are separate
+    deliverables, don't mark complete because happy-path passes, prefer
+    smaller correct slice over larger incorrect one, add regression tests
+    for realistic edge cases, assume your work will be audited.
+
+---
+
+## Operational guidance
 
 ### Use the task tool, but PLAN.md is canonical
 
 The Task tool is for in-session tracking. PLAN.md is for cross-session
-state. Don't rely on the task tool to remember anything between
-sessions — it'll get cleaned up. Update PLAN.md after every milestone,
-including:
+state. Update PLAN.md after every milestone, including:
 
 - Tick the checkbox `[x]` on the completed milestone
-- Add a one-line completion note in the milestone bullet (date + what
-  was done)
-- Append a note to the Phase Notes section of the current phase
-- Update the Status header at the top of PLAN.md if the phase status
-  changed
-- If a new decision was made, append to the Decisions log table at the
-  bottom
-- If a kill criterion was hit, append to the Kill criteria results table
-- If a non-obvious lesson emerged, append to the Notes / lessons /
-  unlearning section
+- Add a one-line completion note in the milestone bullet
+- Append a note to the Phase Notes section
+- Update the Status header at the top
+- Append to Decisions log if a new decision was made
+- Append to Kill criteria results if a kill criterion was hit
 
-### Tools and permissions
+### Dev environment
 
-- Use Read, Write, Edit, Glob, Grep, Bash as standard
-- Prefer Edit over Write for modifying existing files
-- Prefer dedicated tools over Bash equivalents (Read not cat, Glob not
-  find, Grep not grep, etc.)
-- Tree-sitter / Python work in Phase B+ requires creating a real Python
-  package — that's fine, the Bash tool can handle pip install, pytest
-  runs, etc.
+- **Python 3.12** managed by `uv` (not system Python)
+- Create venv: `uv venv .venv --python 3.12`
+- Install: `uv pip install --python .venv/bin/python -e ".[dev]"`
+- Tests: `cd pensieve/python && .venv/bin/pytest tests/ -q`
+- Do NOT use `python3 -m venv` on this machine (uv-managed Python is
+  PEP 668 externally-managed, it will fail)
 
 ### When to ask vs when to just do
 
-- **Just do:** well-scoped milestones from PLAN.md (the milestones are
-  intentionally written to be executable)
+- **Just do:** well-scoped milestones from PLAN.md
 - **Ask first:** decisions that affect file layout, breaking changes,
-  destructive operations, anything that touches v1 directories, name
-  changes
+  destructive operations, anything that touches v1 directories
 - **Push back when you disagree:** if a milestone seems wrong given
-  what you've discovered, say so. Don't execute mechanically.
+  what you've discovered, say so
 
 ### When the benchmark says we're losing
 
-This will happen at least once. The honest path is:
-
 1. Record the failure in the kill criteria results table in PLAN.md
 2. Don't proceed to the next phase
-3. Iterate on the failing milestones in the current phase
-4. If iteration doesn't move the number, surface the failure to Lalit
-   and discuss whether the design needs to change
+3. Iterate on the failing milestones
+4. If iteration doesn't move the number, surface to Lalit
 
 Don't rationalize a regression as "well, this metric isn't really
-representative." The whole point of measurement is honesty.
+representative."
 
-## Parallel agent coordination (if multiple agents are working at once)
+---
 
-If Lalit is running you in parallel with another agent:
+## Key bugs fixed during development (for pattern awareness)
 
-1. **Agree on milestone ownership before starting.** Don't both work
-   on A2 simultaneously.
-2. **Avoid touching the same files.** PLAN.md is the only file both
-   agents will need to update — coordinate updates carefully.
-3. **Default rule:** when two agents are active, one is the "executor"
-   on the active milestone and the other is in a holding / consulting
-   role (review-only) until ownership is reassigned.
-4. **If you discover the other agent has touched a file you're about
-   to modify**, re-read the file before editing. The state may have
-   changed.
-5. **PLAN.md edits are not safe to parallelize.** Whoever finishes a
-   milestone first updates PLAN.md, the other waits and re-reads
-   before their next update.
+These represent the types of issues that recur. New code in the same
+areas should be watchful:
 
-## Quality expectations across agent instances
-
-You should know this: a different agent reading this dump will not
-produce identical output to the agent that wrote it. Same model,
-different conversation history → different stylistic accumulations and
-some judgment calls will diverge.
-
-Specifically:
-
-- **Execution-focused milestones** (write a file, install a hook,
-  extract AST from a Python file): comparable quality across agents
-- **Judgment calls** (when to push back, how much detail in a response,
-  whether to ask vs decide): some divergence; Lalit may need to
-  recalibrate
-- **Design decisions** that aren't in PLAN.md: will diverge. When you
-  encounter one, ask before deciding — don't assume the other agent
-  would have decided the same way.
-
-If you find yourself making a decision that's not anchored in PLAN.md
-or this file, that's a signal to ask Lalit rather than proceed.
-
-## What good looks like at the end of Phase A
-
-Phase A ends with a number: `benchmark.json` showing whether the hybrid
-wiring + PreToolUse hook beats baseline on the calibration repo. The
-target is:
-
-- Lenient pass rate ≥ baseline (no quality regression)
-- Cost ≤ 105% of baseline
-- Auto-benchmark numbers correlate with the teammate's external
-  benchmark within ~10%
-
-If those conditions hold, Phase B starts. If they don't, we iterate on
-the wiring before moving on. The proceed criterion is not a deadline;
-it's a quality gate.
-
-## File map (current state of the repo)
-
-```
-codebase-analysis-skill/
-├── README.md                       v1 README (preserved)
-├── PLAN.md                         ★ canonical v2 plan + tracker
-├── pensieve-context.md             ★ this file
-├── pensieve/                       ★ v2 build (Phase A scaffolding)
-│   ├── README.md
-│   ├── python/.gitkeep             populated in A2
-│   ├── commands/.gitkeep
-│   ├── templates/.gitkeep
-│   ├── references/.gitkeep
-│   ├── examples/.gitkeep
-│   ├── worked/.gitkeep
-│   └── tests/.gitkeep
-├── shared/                         v1 fallback — don't touch
-├── claude-code/                    v1 fallback — don't touch
-├── codex/                          v1 fallback — don't touch
-├── cursor/                         v1 fallback — don't touch
-└── eval/                           v1 eval rubrics (updated for hybrid wiring)
-```
-
-## Pointer to graphify (the comparison framework)
-
-If you need to understand the reference design we're learning from,
-graphify lives at:
-
-```
-/Users/lalit.verma@zomato.com/Desktop/tinkering/graphify-3
-```
-
-The most important files in graphify for understanding the design we're
-adopting:
-
-| File | What to look at |
-|---|---|
-| `README.md` | The product story, the 71.5× token reduction claim, the always-on hook explanation |
-| `ARCHITECTURE.md` | The pipeline (detect → extract → build → cluster → analyze → report → export), module responsibilities |
-| `graphify/__main__.py` lines 26–38 | `_SETTINGS_HOOK` — the PreToolUse hook installer pattern we're stealing for Phase A |
-| `graphify/__main__.py` lines 220–251 | `_install_claude_hook` — how the hook gets written to `.claude/settings.json` |
-| `graphify/extract.py` | AST extraction patterns we'll mirror in Phase B |
-| `graphify/cache.py` | SHA256 cache pattern for incremental re-runs |
-| `graphify/benchmark.py` | Auto-benchmark pattern (their version measures token reduction; ours will measure cost/quality/time on simulated tasks) |
-| `worked/karpathy-repos/review.md` | The "honest review" format for worked examples |
-| `worked/karpathy-repos/GRAPH_REPORT.md` | Their nano-equivalent — a one-page summary the agent reads |
-
-Don't copy graphify's code wholesale. The goal is to learn the patterns
-and apply them with our own design constraints (markdown-friendly
-output, pattern recipes, chat-first checkpoint, decisions as
-first-class).
+- **Circular imports:** `_version.py` importing `pensieve.extractors`
+  caused circular dependency. Fixed by using `__file__` paths only.
+- **Language-specific AST surprises:** Go `parameter_list` for return
+  types entering the param branch, TS `export` not knowing about
+  interfaces/types/enums, Java `asterisk` as separate AST child for
+  wildcard imports, Rust `use_as_clause` for aliases.
+- **Graph false positives:** Last-segment fallback resolving `pkg.bar`
+  to wrong `other/bar.py`, ambiguous stems (`utils.py` in multiple
+  packages), extension priority in mixed-language directories.
+- **Mode contamination:** Framework mutations leaking into baseline
+  runs (fixed with `shutil.copytree` isolation).
+- **Identity matching:** Hook identity using substring match catching
+  unrelated hooks (fixed with exact command match).
 
 ---
 

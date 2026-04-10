@@ -157,7 +157,22 @@ class BenchmarkReport:
 
 
 def aggregate_metrics(result: BenchmarkResult) -> BenchmarkReport:
-    """Aggregate a BenchmarkResult into a BenchmarkReport."""
+    """Aggregate a BenchmarkResult into a BenchmarkReport.
+
+    Raises ValueError if exactly one side is empty — comparative
+    metrics (deltas, verdict) are meaningless without both modes.
+    Both-empty is allowed (produces zero deltas and MIXED verdict).
+    """
+    has_fw = len(result.framework_results) > 0
+    has_bl = len(result.baseline_results) > 0
+    if has_fw != has_bl:
+        populated = "framework" if has_fw else "baseline"
+        empty = "baseline" if has_fw else "framework"
+        raise ValueError(
+            f"Cannot compute comparative metrics: {populated} has results "
+            f"but {empty} is empty. Run both modes for a valid comparison."
+        )
+
     fw_stats = compute_mode_stats(result.framework_results)
     bl_stats = compute_mode_stats(result.baseline_results)
     deltas = compute_deltas(fw_stats, bl_stats)

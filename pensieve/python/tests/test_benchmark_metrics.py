@@ -233,6 +233,33 @@ class TestAggregateMetrics:
         assert report.with_framework.task_count == 0
         assert report.verdict == "MIXED"  # no data → not PASS, not FAIL
 
+    # --- Regression: one-side-empty produces misleading deltas ---
+
+    def test_framework_only_raises(self):
+        """aggregate_metrics rejects framework-only results because
+        comparative metrics are meaningless with one side empty."""
+        br = BenchmarkResult(
+            repo_root=Path("/tmp/repo"),
+            baseline_results=[],
+            framework_results=[
+                _result("t1", "with_framework", tokens=800, cost=0.08),
+            ],
+        )
+        with pytest.raises(ValueError, match="baseline is empty"):
+            aggregate_metrics(br)
+
+    def test_baseline_only_raises(self):
+        """aggregate_metrics rejects baseline-only results."""
+        br = BenchmarkResult(
+            repo_root=Path("/tmp/repo"),
+            baseline_results=[
+                _result("t1", "baseline", tokens=1000, cost=0.10),
+            ],
+            framework_results=[],
+        )
+        with pytest.raises(ValueError, match="framework is empty"):
+            aggregate_metrics(br)
+
 
 # ---------------------------------------------------------------------------
 # write_benchmark_json

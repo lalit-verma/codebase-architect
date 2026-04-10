@@ -82,6 +82,67 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output directory (default: <repo>/agent-docs)",
     )
 
+    # --- benchmark subcommand (A12) ---
+    bench_parser = subparsers.add_parser(
+        "benchmark",
+        help="Run the auto-benchmark suite",
+        description=(
+            "Run benchmark task templates against a target repo, "
+            "comparing with-framework (agent-docs + hook) against "
+            "baseline (no agent-docs). Produces benchmark.json with "
+            "metrics and appends a row to benchmark-history.md."
+        ),
+    )
+    bench_sub = bench_parser.add_subparsers(
+        dest="bench_action",
+        title="actions",
+        metavar="<action>",
+    )
+
+    run_parser = bench_sub.add_parser("run", help="Run the benchmark")
+    run_parser.add_argument(
+        "--repo",
+        type=str,
+        default=".",
+        help="Repository root (default: current directory)",
+    )
+    run_parser.add_argument(
+        "--tasks",
+        type=str,
+        default="all",
+        help=(
+            "Comma-separated template names, or 'all' for every "
+            "registered template (default: all)"
+        ),
+    )
+    run_parser.add_argument(
+        "--baseline",
+        action="store_true",
+        default=False,
+        help=(
+            "Explicitly include baseline mode. Both modes run by "
+            "default; use --baseline --with-framework together to "
+            "be explicit. Single-mode is not supported."
+        ),
+    )
+    run_parser.add_argument(
+        "--with-framework",
+        action="store_true",
+        default=False,
+        dest="with_framework",
+        help=(
+            "Explicitly include with-framework mode. Both modes run "
+            "by default; use --baseline --with-framework together to "
+            "be explicit. Single-mode is not supported."
+        ),
+    )
+    run_parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Output directory for benchmark.json (default: <repo>/agent-docs)",
+    )
+
     # --- hook subcommand (A3, A4) ---
     hook_parser = subparsers.add_parser(
         "hook",
@@ -157,11 +218,142 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "scan":
         return _cmd_scan(args)
 
+    if args.command == "benchmark":
+        return _cmd_benchmark(args)
+
     if args.command == "hook":
         return _cmd_hook(args)
 
     print(f"pensieve: unknown command: {args.command}", file=sys.stderr)
     return 1
+
+
+def _cmd_benchmark(args) -> int:
+    """Handle the `pensieve benchmark run` subcommand."""
+    if not hasattr(args, "bench_action") or args.bench_action is None:
+        print("pensieve benchmark: specify 'run'", file=sys.stderr)
+        return 1
+
+    if args.bench_action != "run":
+        print(f"pensieve benchmark: unknown action: {args.bench_action}", file=sys.stderr)
+        return 1
+
+    from pathlib import Path
+
+    from pensieve.benchmark.history import append_to_history
+    from pensieve.benchmark.metrics import aggregate_metrics, write_benchmark_json
+    from pensieve.benchmark.runner import run_benchmark
+    from pensieve.benchmark.tasks import get_all_templates, get_template_by_name
+
+    repo_root = Path(args.repo).resolve()
+    if not repo_root.is_dir():
+        print(f"pensieve benchmark run: not a directory: {repo_root}", file=sys.stderr)
+        return 1
+
+    # Resolve templates
+    if args.tasks == "all":
+        templates = get_all_templates()
+    else:
+        names = [n.strip() for n in args.tasks.split(",") if n.strip()]
+        templates = []
+        for name in names:
+            t = get_template_by_name(name)
+            if t is None:
+                available = [t.name for t in get_all_templates()]
+                print(
+                    f"pensieve benchmark run: unknown template: {name}\n"
+                    f"  available: {', '.join(available)}",
+                    file=sys.stderr,
+                )
+                return 1
+            templates.append(t)
+
+    if not templates:
+        print("pensieve benchmark run: no templates to run", file=sys.stderr)
+        return 1
+
+    # Resolve modes — benchmark comparison requires both modes.
+    # If neither flag is given, run both (the default).
+    # If both flags are given, run both (explicit).
+    # If only one flag is given, reject: the output artifacts
+    # (benchmark.json, benchmark-history.md) are comparative and
+    # produce misleading deltas/verdicts with only one side populated.
+    run_bl = args.baseline
+    run_fw = args.with_framework
+    if not run_bl and not run_fw:
+        run_bl = True
+        run_fw = True
+    elif run_bl != run_fw:
+        missing = "--with-framework" if run_bl else "--baseline"
+        print(
+            f"pensieve benchmark run: comparison requires both modes.\n"
+            f"  Add {missing} or omit both flags to run the full comparison.\n"
+            f"  Single-mode runs are not supported because benchmark.json\n"
+            f"  and benchmark-history.md are comparative artifacts.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Resolve output directory
+    output_dir = Path(args.output_dir) if args.output_dir else repo_root / "agent-docs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # We need a real executor for actual benchmark runs.
+    # For now, print a clear message if no executor is available.
+    # A real executor (calling Claude Code subprocess) will be
+    # plugged in when we run on the calibration repo (A13).
+    try:
+        from pensieve.benchmark.executor import create_executor
+        executor = create_executor()
+    except ImportError:
+        # No real executor yet — provide a stub that explains
+        print(
+            "pensieve benchmark run: no executor available.\n"
+            "  The benchmark runner requires an executor to invoke the\n"
+            "  coding agent. A real executor (Claude Code subprocess)\n"
+            "  will be implemented in A13.\n"
+            "\n"
+            "  For testing, use the Python API directly with a mock\n"
+            "  executor:\n"
+            "    from pensieve.benchmark.runner import run_benchmark",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"Running benchmark on {repo_root}")
+    print(f"  templates: {len(templates)}  baseline: {run_bl}  framework: {run_fw}")
+
+    result = run_benchmark(
+        repo_root=repo_root,
+        templates=templates,
+        executor=executor,
+        run_baseline=run_bl,
+        run_framework=run_fw,
+    )
+
+    # Aggregate metrics
+    report = aggregate_metrics(result)
+
+    # Write benchmark.json
+    json_path = write_benchmark_json(report, output_dir / "benchmark.json")
+    print(f"  -> {json_path}")
+
+    # Append to benchmark-history.md
+    history_path = append_to_history(report, output_dir / "benchmark-history.md")
+    print(f"  -> {history_path}")
+
+    # Print summary
+    d = report.deltas
+    print(f"\n  Verdict: {report.verdict}")
+    print(f"  Cost:    {d.cost_pct:+.1f}%")
+    print(f"  Lenient: {d.lenient_pass_pp:+.1f}pp")
+    print(f"  Quality: {d.quality_diff:+.2f}")
+    print(f"  Tokens:  {d.tokens_pct:+.1f}%")
+    print(f"  Time:    {d.time_pct:+.1f}%")
+    print(f"  Tasks:   {max(report.with_framework.task_count, report.baseline.task_count)}")
+    print(f"  Total:   {report.total_time_seconds:.1f}s")
+
+    return 0
 
 
 def _cmd_scan(args) -> int:

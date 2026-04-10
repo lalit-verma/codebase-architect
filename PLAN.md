@@ -1,6 +1,6 @@
 # Code Pensieve — Build Plan
 
-> **Status:** Phase A resumed (A3–A6 complete, A7 next); Phase B Layer 1 (B1–B13) complete
+> **Status:** Phase A resumed (A3–A12 complete, A13 next); Phase B Layer 1 (B1–B13) complete
 > **Last updated:** 2026-04-10
 > **Owners:** Lalit + Claude (collaborative build)
 
@@ -109,7 +109,7 @@ new code). Everything else either supports these or is for human reference.
 
 | Phase | Goal | Status |
 |---|---|---|
-| **A** | Hooks + auto-benchmark | **paused** — proceed criterion met (2026-04-10); A1, A2 complete; A3–A15 deferred until after Phase B |
+| **A** | Hooks + auto-benchmark | A1–A12 complete; A13–A15 remaining (need calibration repo) |
 | **B** | AST extraction (Layer 1 + integration into Layer 2) | Layer 1 complete (B1–B13, 529 tests); Layer 2 integration (B14–B17) pending |
 | **C** | Multi-repo support | not started |
 | **D** | MCP, multi-platform, polish, distribution | not started |
@@ -226,15 +226,30 @@ infrastructure we need for every subsequent phase.
   FAIL). *(2026-04-10: `src/pensieve/benchmark/metrics.py` with
   ModeStats, Deltas, compute_verdict (PASS/MIXED/FAIL), aggregate_metrics,
   write_benchmark_json. Per-task breakdown pairs both modes. Handles
-  empty results and error exclusion. 19 tests. 652/652 total pass.)*
+  empty results and error exclusion. Post-review fix: aggregate_metrics()
+  raises ValueError when exactly one side is empty — comparative metrics
+  are meaningless without both modes. Both-empty still allowed (MIXED).
+  21 tests. 700/700 total pass.)*
 - [x] **A11.** Implement `benchmark-history.md` generator — appends each
   run's summary so successive re-runs show trends. *(2026-04-10:
   `src/pensieve/benchmark/history.py` with append_to_history(). Creates
   markdown table on first run, appends row per subsequent run. Columns:
   date, verdict, cost/lenient/quality/tokens/time deltas, task count.
-  Never overwrites existing content. 11 tests. 668/668 total pass.)*
-- [ ] **A12.** Implement the CLI: `pensieve benchmark run --repo <path>
-  --tasks all --baseline --with-framework`.
+  Never overwrites existing content. Post-review fix: table detection
+  requires header+separator as adjacent pair (header-only not treated
+  as table); row insertion tracks contiguous pipe-line block only
+  (pipe-prefixed prose after table not confused with table rows).
+  17 tests. 700/700 total pass.)*
+- [x] **A12.** Implement the CLI: `pensieve benchmark run --repo <path>
+  --tasks all --baseline --with-framework`. *(2026-04-10:
+  `benchmark run` subcommand in cli.py. Flags: --repo, --tasks (all or
+  comma-separated names), --baseline, --with-framework, --output-dir.
+  Neither mode flag → both run. Template validation with available-names
+  error. Executor loaded via pluggable `pensieve.benchmark.executor`
+  module (ImportError → clear message pointing to A13). On success:
+  calls run_benchmark → aggregate_metrics → write_benchmark_json →
+  append_to_history, prints verdict summary. 18 tests. 695/695 total
+  pass.)*
 - [ ] **A13.** Run on the calibration repo (same repo + same 30 tasks the
   teammate has been benchmarking externally).
 - [ ] **A14.** Compare auto-benchmark results to the teammate's most
