@@ -110,40 +110,44 @@ A subsystem doc is not good enough if it:
 
 ## Procedure
 
-### Step 0: Read Structural Evidence (if available)
+### Step 0: Read Subsystem Structural Brief
 
-Check if `agent-docs/structure.json` and `agent-docs/graph.json` exist
-(produced by `pensieve scan` during Phase 1). If they do:
+Run `pensieve brief <dirs>` where `<dirs>` are this subsystem's
+directories from the analysis state. For example:
+`pensieve brief backend/open_webui/models backend/open_webui/internal`
 
-1. Read `agent-docs/structural-profiles.md` for the directory-level
-   overview of this subsystem (edge density, coupling, key symbols).
-2. For the target subsystem's directories, extract from
-   `agent-docs/structure.json`: every file's symbols (names, kinds,
-   signatures), imports, exports, call edges, and rationale comments.
-   This gives you the complete structural skeleton without reading any
-   source files.
-3. From `agent-docs/graph.json`: the subsystem's import dependencies
-   (what it imports from, what imports it), cross-file call edges,
-   and test→source mapping.
+If `pensieve` is available, read the output. It provides:
+- **`<signatures>`** — every file's public symbols with full signatures,
+  sorted by centrality (most-depended-on files first). Use this to
+  understand what each file exports without reading the file.
+- **`<internal_dependencies>`** — which files within the subsystem
+  depend on each other, and which external directories this subsystem
+  imports from or is imported by.
+- **`<entry_points>`** — entry files within the subsystem (main.py, etc.)
+- **`<rationale_comments>`** — developer WHY/HACK/IMPORTANT annotations.
 
-Use this structural evidence to guide which files you actually read in
-full. **Read files that are architecturally revealing** (entry points,
-factories, registries, the most-imported files) rather than sampling
-blindly. The structural data tells you which files are central — you
-don't need to guess.
+This is a high-signal structural summary, not a replacement for reading
+source code. Use it for:
+- **File selection:** read the files the brief shows as most central
+  (highest dependant count) and architecturally revealing
+- **Dependency understanding:** the brief's edge data is authoritative
+  for import relationships
+- **Coverage planning:** know which files exist and what they export
+  before deciding what to read in full
 
-If structural data is not available, fall back to the manual approach
+If `pensieve brief` is not available, fall back to the manual approach
 in Step 1.
 
 ### Step 1: Read the Subsystem
 
 Using the path from the analysis state:
 
-1. **If structural data was read in Step 0:** You already know every
-   file's symbols and relationships. Read in full only the files that
-   the structural evidence shows are architecturally important (high
-   incoming edges, entry points, files with the most call edges).
-   Note what was read fully vs skipped.
+1. **If structural brief was read in Step 0:** You already know every
+   file's symbols and relationships from the brief. Read in full only
+   the files that the brief shows are architecturally important (high
+   dependant count, entry points, files with the most symbols). The
+   brief gives you the map; reading gives you the understanding. Note
+   what was read fully vs skipped.
 2. For small subsystems (<30 files) without structural data: read all
    non-test files, sample tests.
 3. For large subsystems (30+ files) without structural data: read
@@ -215,12 +219,14 @@ if recursive):
 
 **e) Dependencies**
 - Internal: what other subsystems does it import? What imports it?
-  **If graph.json is available**, use it for the complete import graph
-  — it has exact edge counts between directories. Do not guess at
-  dependencies when the graph has the authoritative data.
+  **If a pensieve brief was read in Step 0**, its
+  `<internal_dependencies>` section has authoritative edge data —
+  within-subsystem file-to-file edges and external dependency counts
+  per directory. Use this instead of guessing from imports you read.
 - External: what third-party packages? Which are load-bearing?
-  **If structure.json is available**, check its external_imports for
-  the complete list.
+  The brief's external dependency edges show which outside directories
+  this subsystem depends on. For third-party packages, check the
+  imports visible in the files you read.
 - Flag circular dependencies or surprising coupling
 
 **f) Configuration**

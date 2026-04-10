@@ -70,11 +70,21 @@ produces three files under `agent-docs/`:
 If `agent-docs/structural-profiles.md` already exists and is recent,
 skip the scan and read the existing file.
 
-**Read `agent-docs/structural-profiles.md` now.** This gives you the
-complete structural truth about the repository — file counts per
-directory, internal vs external coupling, key symbols, auto-generated
-directory flags, test directories. Use this evidence throughout the
-remaining steps. It is more complete than manual file exploration.
+**Read `agent-docs/structural-profiles.md` now.** This is a high-signal
+structural summary of the repository. It provides:
+- **Subsystem detection hints:** directory-level coupling data shows
+  which directories are self-contained vs tightly coupled
+- **Centrality signals:** dependant counts show which directories are
+  most depended-on (architecturally central)
+- **File selection guidance:** key symbols per directory tell you what
+  each directory exports
+- **Noise filtering:** AUTO-GENERATED and TEST flags help you skip
+  directories that aren't architectural subsystems
+
+This summary is derived from AST extraction (every file's symbols,
+imports, and call edges) — it is more complete than manual exploration
+for structural questions. It does NOT replace reading source code for
+understanding design intent, patterns, or business logic.
 
 If `pensieve` is not available (command not found), proceed without
 structural data — the remaining steps work without it, just less

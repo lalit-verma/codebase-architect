@@ -666,31 +666,36 @@ foundation that multi-repo cross-edge detection needs in Phase C.
   valid output, all optional sections conditionally emitted.
 
   **v1 prompt updates:**
-  - `analyze-discover.md` — Step 0: runs `pensieve scan`, reads
-    structural-profiles.md. Step 4: references structural profiles
-    for subsystem detection.
-  - `analyze-deep-dive.md` — Step 0: reads structural data
-    (structure.json, graph.json, structural-profiles.md). Step 1:
-    uses structural evidence for file selection. Step 3e: uses
-    graph.json for dependency analysis.
+  - `analyze-discover.md` — Step 0 runs `pensieve scan`, reads
+    structural-profiles.md for subsystem detection hints. Step 4
+    references profiles for coupling-based subsystem boundaries.
+  - `analyze-deep-dive.md` — Step 0 runs `pensieve brief <dirs>`
+    for the target subsystem. Step 1 uses the brief's signatures
+    and dependant counts for file selection. Step 3e uses the
+    brief's `<internal_dependencies>` for dependency analysis
+    (not raw graph.json).
 
-  **What was removed:**
-  - `pensieve analyze` CLI command (replaced by v1 slash commands)
-  - docgen.py custom prompts (v1 prompts are the source of truth)
-
-  **What was kept:**
+  **Python modules kept (evidence-only, no doc generation):**
   - context.py: profile_directories, format_structural_profiles,
-    format_subsystem_brief, propose_subsystems, select_files_for_subsystem,
-    generate_route_index, validators
-  - checkpoint.py (for scan caching)
-  - docgen.py (v1 prompt reading + LLM call helpers — still used by
-    benchmark and future tooling)
+    format_subsystem_brief, generate_route_index, validators,
+    SubsystemProposal/SubsystemMap (for route-index)
   - All benchmark infrastructure (Phase A)
   - Bx1 route-index, Bx5 hook telemetry
 
-  924 tests. Pipeline: `pensieve scan` → `/analyze-discover` →
-  `/analyze-deep-dive` per subsystem → `/analyze-synthesize` →
-  `pensieve wire`.
+  **Removed (final cleanup 2026-04-11):**
+  - `pensieve analyze` CLI + `_cmd_analyze()` function
+  - `docgen.py` module (programmatic doc generation)
+  - `checkpoint.py` module (analyze-pipeline caching)
+  - context.py dead functions: propose_subsystems,
+    select_files_for_subsystem, build_subsystem_brief (old),
+    format_profiles_for_llm, format_subsystem_map,
+    generate_subsystem_doc, save_subsystem_doc, synthesize_docs,
+    save_synthesis, FileSelection, SubsystemDoc, SynthesisResult,
+    all LLM prompt constants
+
+  846 tests. Pipeline: `pensieve scan` → `/analyze-discover` →
+  `/analyze-deep-dive {subsystem}` (uses `pensieve brief`) →
+  `/analyze-synthesize` → `pensieve wire`.
 
 - [ ] **B15.** Run v1 slash commands on calibration repo with structural
   data. Compare output quality to v1-without-structural-data.
@@ -789,7 +794,7 @@ foundation that multi-repo cross-edge detection needs in Phase C.
     validate_subsystem_brief)
   - Full fault tolerance: corrupt/missing files → error tags, missing
     graph → proceed without, empty repos → minimal valid output
-  - 924 tests total
+  - 846 tests total (all dead code and tests removed)
   - Design grounded in: Aider repo map (tree-sitter + PageRank), RIG
     paper (+12.2% accuracy with descriptive fields), ICLR 2025 (edge
     lists > matrices), Anthropic (XML tags for Claude), Code Maps
@@ -797,49 +802,89 @@ foundation that multi-repo cross-edge detection needs in Phase C.
 
 ---
 
-## Phase Bx — Adaptive Wiring Lite
+## Phase Bx — Adaptive Wiring And Structural Routing
 
-**Goal.** Make the wiring layer meaningfully more useful without
-turning it into a large new architecture effort. The focus is simple:
-route agents to the right doc earlier, reduce low-signal search thrash,
-and measure whether the hook actually helped.
+**Goal.** Make the harness use the structural moat optimally:
+repo-wide routing via `structural-profiles.md`, subsystem routing via
+`pensieve brief`, recipe routing via `patterns.md`, and telemetry that
+proves whether those hints actually changed agent behavior.
 
-**Why now.** Phase B gives us better generated context, but static
-wiring still leaves too much value on the table. Before moving to
-multi-repo, we should tighten the single-repo retrieval loop using the
-smallest set of prehook strategies likely to create real lift.
+**Why now.** Phase B's value is no longer just “better docs.” The real
+advantage is deterministic structure extraction and high-signal
+compression of that structure into agent-usable artifacts. Static
+wiring leaves too much of that value unused. Before moving to multi-repo,
+we should make the single-repo harness route agents through the right
+derived artifacts at the right time.
+
+**Final architecture assumptions.**
+- Slash commands are the doc pipeline.
+- `pensieve scan` and `pensieve brief` are the structural moat.
+- `structure.json` and `graph.json` are machine-only artifacts and must
+  never be read directly by LLM agents.
+- Hooks route; they do not dump large context by default.
+
+**Artifact roles for routing.**
+- `agent-context-nano.md` — session-start quick context only
+- `structural-profiles.md` — repo-wide orientation, ownership, subsystem
+  discovery, deep-dive ordering
+- `brief` output — subsystem-level coding context, file targeting,
+  dependency-aware edits, test mapping
+- `patterns.md` — recipe-first coding guidance
+- subsystem docs — deeper interpreted context after routing
+- `route-index.json` — harness-readable routing substrate
 
 **Pareto principle.** This phase deliberately excludes clever-but-costly
 hook ideas. We only implement the highest-leverage pieces:
-1. path-aware routing
-2. recipe-first hints
-3. anti-thrash intervention
-4. telemetry for docs-consulted vs not-consulted
+1. route-index generation from structural artifacts
+2. path-aware routing
+3. recipe-first hints
+4. anti-thrash intervention
+5. telemetry
 
 ### Milestones
 
-- [x] **Bx1.** Build a lightweight route index from generated context.
-  *(2026-04-10: `generate_route_index()` in context.py. Maps directory
-  prefixes to subsystem docs via route-index.json. Generated as part
-  of `pensieve analyze` pipeline. Schema: version, routes[] with
-  match_type/pattern/subsystem/doc_path/hint, fallback_hint.
-  4 tests. 893/893 total pass.)*
+- [x] **Bx1.** Build a route index from generated context.
+  *(2026-04-10: `generate_route_index()` in context.py. Current schema:
+  version, routes[] with match_type/pattern/subsystem/doc_path/hint,
+  fallback_hint. Initially generated from subsystem map. This is the
+  seed substrate for richer structural routing.)*
+
+- [ ] **Bx1a.** Upgrade route-index to be structurally aware.
+  Route index should be derived from:
+  - subsystem map from `/analyze-discover`
+  - `structural-profiles.md`
+  - subsystem docs
+  - `patterns.md`
+  - known key files / common tasks / touched-together hints
+  It should encode:
+  - path prefix → subsystem doc
+  - path prefix → `brief` target dirs
+  - task shape → preferred artifact
+  - subsystem → key files
+  - subsystem → common tasks
 
 - [ ] **Bx2.** Add path-aware prehook routing.
   When the agent is about to use broad search (`Glob`, `Grep`) and the
   query/path clearly maps to a subsystem, surface one short hint that
-  points to the most relevant subsystem doc or path anchor. Keep it
-  concise and non-spammy.
+  points to the most relevant artifact:
+  - subsystem doc
+  - `structural-profiles.md`
+  - or `pensieve brief <dirs>` for that subsystem
+  Keep it concise and non-spammy.
 
 - [ ] **Bx3.** Add recipe-first hints.
-  When the query looks like a common modification task, prefer surfacing
-  the most actionable recipe/pattern/example over general architecture
-  prose. The hook should bias toward “how to add/change X” guidance.
+  When the query looks like a modification task, prefer surfacing the
+  most actionable recipe/pattern/example over architecture prose. The
+  routing preference should be:
+  1. `patterns.md`
+  2. relevant subsystem doc
+  3. relevant `brief`
 
 - [ ] **Bx4.** Add anti-thrash intervention.
   Detect repeated broad, low-signal search before a relevant file or doc
-  is opened. Intervene once with a direct rerouting hint. Do not repeat
-  the same hint aggressively.
+  is opened. Intervene once with a direct rerouting hint toward the
+  correct subsystem doc or `brief`. Do not repeat the same hint
+  aggressively.
 
 - [x] **Bx5.** Add hook telemetry.
   *(2026-04-10: Hook script updated to read stdin (tool_name, session_id,
@@ -847,40 +892,142 @@ hook ideas. We only implement the highest-leverage pieces:
   append JSONL events to agent-docs/hook-telemetry.jsonl. Event schema:
   timestamp, event ("hint_shown"), tool_name, query, hint_type
   ("routed"/"fallback"), target_doc, session_id. Consultation tracking
-  deferred — correlate telemetry with transcript_path post-run.
-  5 tests including E2E hook invocation. 893/893 total pass.)*
-  Output: append-only telemetry file for benchmark analysis.
+  deferred — correlate telemetry with transcript_path post-run.)*
 
-- [ ] **Bx6.** Benchmark the adaptive hook layer.
+- [ ] **Bx5a.** Expand telemetry to structural-artifact usage.
+  Track:
+  - hint shown
+  - artifact suggested (`structural-profiles`, `brief`, `patterns`,
+    subsystem doc)
+  - target subsystem
+  - whether that artifact was later consulted
+  - broad-search count before first relevant read
+  - routed vs fallback vs anti-thrash intervention
+
+- [ ] **Bx6.** Make `brief` a first-class harness primitive.
+  `pensieve brief <dirs>` should be cheap enough for routine use,
+  cacheable, and optionally materializable to predictable files such as
+  `agent-docs/briefs/{subsystem}.md`. Hooks and slash commands should be
+  able to route to or invoke it without exposing raw JSON.
+
+- [ ] **Bx7.** Add freshness and validity checks for routed artifacts.
+  Routing should not rely on stale structural summaries. Add stage-
+  specific fingerprints for:
+  - `structural-profiles.md`
+  - `brief` outputs
+  - route index
+  - discover outputs
+  - synthesis outputs
+  Hook behavior should degrade gracefully when artifacts are stale or
+  partial.
+
+- [ ] **Bx8.** Benchmark the adaptive hook layer.
   Compare:
   - docs only
-  - docs + adaptive hook
+  - docs + current hook
+  - docs + structural routing
   Metrics:
   - docs-consulted rate
+  - `brief` consulted rate
+  - `structural-profiles.md` consulted rate
   - search-thrash reduction
   - strict / lenient pass
   - quality
   - cost / tokens / time
 
+### Routing policy (explicit)
+
+Default harness routing should be:
+- session start → `agent-context-nano.md`
+- architecture / ownership / “what subsystem owns X?” →
+  `structural-profiles.md`
+- subsystem implementation work → `brief`
+- “how do I add/change X?” → `patterns.md`
+- deep follow-up context → subsystem doc
+
 ### Proceed criterion (Phase Bx → Phase C)
 
 1. Docs-consulted rate improves materially vs docs-only baseline.
-2. Broad-search thrash decreases on the frozen benchmark task set.
-3. Hook hints do not meaningfully regress pass, quality, cost, or time.
-4. The adaptive hook stays simple: no LLM-in-the-hook, no large context
-   injection by default, no repeated hint spam.
+2. `brief` and/or `structural-profiles.md` are consulted earlier on the
+   frozen benchmark task set.
+3. Broad-search thrash decreases on the frozen benchmark task set.
+4. Hook hints do not materially regress pass, quality, cost, or time.
+5. The adaptive hook stays simple: no LLM-in-the-hook, no raw JSON
+   exposure, no large context injection by default, no repeated hint
+   spam.
 
-### Phase Bx status: not started
+### Phase Bx status: foundation started (Bx1, Bx5 shipped; routing layer not yet implemented)
 
 ### Phase Bx notes
 
-- Keep the hook layer simple and measurable.
+- The moat is not “we have docs.” The moat is deterministic structural
+  extraction + high-signal compression + routing + telemetry.
+- `structure.json` and `graph.json` are compiler IR, not agent-facing
+  artifacts.
+- `structural-profiles.md` is the repo-wide routing artifact.
+- `brief` is the subsystem working-context artifact.
 - Do not inject large docs by default; route first, load later.
-- If only two things get built, prioritize:
+- If only two things get built next, prioritize:
   1. path-aware routing
-  2. telemetry
-- This phase is intentionally the 80/20 version of “smart wiring,” not
-  a full autonomous retrieval engine.
+  2. structural-artifact telemetry
+- This phase is intentionally the 80/20 version of smart wiring, not a
+  full autonomous retrieval engine.
+
+### Recommended execution order (rolling waves, not one giant phase)
+
+We intend to execute the full Bx roadmap, but **not** as one large
+uninterrupted build. The correct approach is progressive rollout:
+implement a tight slice, measure, inspect telemetry, then continue.
+
+**Wave 1 — substrate + measurement**
+1. `Bx1` route index 2.0
+2. `Bx5` telemetry 2.0
+3. codify the routing policy in hook/command behavior
+
+Why first:
+- provides the routing substrate
+- provides measurement
+- later routing work would otherwise be guessy
+
+**Wave 2 — highest-lift routing**
+4. `Bx2` path-aware routing
+5. `Bx6` brief lifecycle
+
+Why second:
+- this is the most likely 80/20 payoff
+- route agents to the right subsystem and the right `brief` early
+
+**Wave 3 — optimization layers**
+6. `Bx4` anti-thrash intervention
+7. `Bx3` recipe-first hints
+
+Why third:
+- these build on top of basic routing
+- they are valuable, but easier to overdo before telemetry proves the
+  simpler routing is working
+
+**Wave 4 — hardening + validation**
+8. `Bx7` freshness/validity
+9. `Bx8` benchmark ablation
+
+Why fourth:
+- freshness hardening matters once routing is real
+- ablation should validate the stack after the routing behavior exists
+
+**Operational rule:**
+- do not build the entire list before measuring
+- after Wave 2, run a benchmark slice and inspect telemetry
+- continue only if the structural-routing path is showing real signal
+- if lift is weak, debug routing/usage before adding more clever behavior
+
+**Practical prioritization:**
+The most likely 80/20 remains:
+1. route index
+2. telemetry
+3. path-aware routing
+4. `brief` lifecycle
+
+Everything after that must earn its complexity by benchmark lift.
 
 ---
 
