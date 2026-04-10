@@ -1,11 +1,16 @@
 """Benchmark history generator (milestone A11).
 
 Appends a one-run summary to `benchmark-history.md` so successive
-re-runs show trends over time. The file is human-readable markdown
-with a table of runs.
+re-runs show trends over time. Maintains a valid markdown table:
 
-Creates the file with a header on the first run. Appends a new row
-on each subsequent run. Never overwrites existing content.
+  - Creates the file with header + table on first run.
+  - On subsequent runs, finds the table and appends a row at the end.
+  - If the file exists but has no table header, inserts the header
+    before the first row.
+  - Ensures trailing newline before appending to prevent line fusion.
+
+Never overwrites non-table content (prose notes above the table are
+preserved).
 """
 
 from __future__ import annotations
@@ -16,15 +21,18 @@ from pathlib import Path
 from pensieve.benchmark.metrics import BenchmarkReport
 
 
-_HEADER = """\
+_TABLE_HEADER_LINE = "| Date | Verdict | Cost Δ | Lenient Δ | Quality Δ | Tokens Δ | Time Δ | Tasks |"
+_TABLE_SEPARATOR = "|------|---------|--------|-----------|-----------|----------|--------|-------|"
+
+_FULL_HEADER = f"""\
 # Benchmark History
 
 Successive benchmark runs on this repo. Each row is one run of
 `pensieve benchmark run`. Trends show whether framework changes
 improve or regress performance.
 
-| Date | Verdict | Cost Δ | Lenient Δ | Quality Δ | Tokens Δ | Time Δ | Tasks |
-|------|---------|--------|-----------|-----------|----------|--------|-------|
+{_TABLE_HEADER_LINE}
+{_TABLE_SEPARATOR}
 """
 
 
@@ -70,26 +78,55 @@ def append_to_history(
 ) -> Path:
     """Append a benchmark run summary to benchmark-history.md.
 
-    Creates the file with a header if it doesn't exist.
-    Appends a table row for each call.
+    Maintains a valid markdown table:
+      - Creates the file with header if it doesn't exist.
+      - If the file exists but has no table header, appends the
+        header + separator before the first row.
+      - Ensures a trailing newline before appending the new row.
+      - Appends the row after the last table row (pipe-prefixed line).
 
-    Args:
-        report: The BenchmarkReport to record.
-        history_path: Path to the benchmark-history.md file.
-        timestamp: Optional override for the date column. Defaults
-            to current UTC time.
-
-    Returns:
-        The path written to.
+    Returns the path written to.
     """
     history_path.parent.mkdir(parents=True, exist_ok=True)
 
     row = _format_row(report, timestamp)
 
     if not history_path.exists():
-        history_path.write_text(_HEADER + row + "\n", encoding="utf-8")
-    else:
-        with history_path.open("a", encoding="utf-8") as f:
-            f.write(row + "\n")
+        # First run: create file with full header + first row
+        history_path.write_text(_FULL_HEADER + row + "\n", encoding="utf-8")
+        return history_path
 
+    # File exists — read, find the table, append the row
+    content = history_path.read_text(encoding="utf-8")
+
+    # Ensure trailing newline to prevent line fusion
+    if content and not content.endswith("\n"):
+        content += "\n"
+
+    # Check if the table header exists
+    has_table = _TABLE_HEADER_LINE in content
+
+    if has_table:
+        # Find the last table row (last line starting with |) and
+        # insert after it. This preserves any prose after the table.
+        lines = content.split("\n")
+        last_table_idx = -1
+        for i, line in enumerate(lines):
+            if line.startswith("|"):
+                last_table_idx = i
+
+        if last_table_idx >= 0:
+            # Insert the new row after the last table line
+            lines.insert(last_table_idx + 1, row)
+            content = "\n".join(lines)
+            if not content.endswith("\n"):
+                content += "\n"
+        else:
+            # Header found but no rows yet — append after content
+            content += row + "\n"
+    else:
+        # No table header — add header + separator + row
+        content += "\n" + _TABLE_HEADER_LINE + "\n" + _TABLE_SEPARATOR + "\n" + row + "\n"
+
+    history_path.write_text(content, encoding="utf-8")
     return history_path

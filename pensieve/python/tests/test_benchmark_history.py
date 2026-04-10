@@ -155,8 +155,12 @@ class TestAppendToHistory:
     def test_preserves_existing_content(self, tmp_path):
         path = tmp_path / "benchmark-history.md"
 
-        # Write some pre-existing content
-        path.write_text("# Benchmark History\n\nSome custom note.\n\n")
+        # Write some pre-existing content with a valid table
+        path.write_text(
+            "# Benchmark History\n\nSome custom note.\n\n"
+            "| Date | Verdict | Cost Δ | Lenient Δ | Quality Δ | Tokens Δ | Time Δ | Tasks |\n"
+            "|------|---------|--------|-----------|-----------|----------|--------|-------|\n"
+        )
 
         append_to_history(_make_report(), path, timestamp="2026-04-10 14:00")
 
@@ -168,3 +172,66 @@ class TestAppendToHistory:
         path = tmp_path / "benchmark-history.md"
         result = append_to_history(_make_report(), path, timestamp="2026-04-10 14:00")
         assert result == path
+
+    # --- Regression tests for review findings ---
+
+    def test_no_trailing_newline_no_fusion(self, tmp_path):
+        """Existing file without trailing newline should not fuse the
+        new row onto the previous line."""
+        path = tmp_path / "benchmark-history.md"
+        path.write_text(
+            "# Benchmark History\n\n"
+            "| Date | Verdict | Cost Δ | Lenient Δ | Quality Δ | Tokens Δ | Time Δ | Tasks |\n"
+            "|------|---------|--------|-----------|-----------|----------|--------|-------|\n"
+            "| old row | **PASS** | 0% | 0pp | 0 | 0% | 0% | 0 |"
+            # no trailing newline!
+        )
+
+        append_to_history(_make_report(), path, timestamp="2026-04-10 14:00")
+
+        content = path.read_text()
+        lines = content.strip().split("\n")
+        # The old row and new row should be separate lines
+        pipe_lines = [l for l in lines if l.startswith("|") and "Date" not in l and "---" not in l]
+        assert len(pipe_lines) == 2
+        # No line fusion
+        assert not any("||" in l for l in lines)
+
+    def test_prose_only_file_gets_table_header(self, tmp_path):
+        """File with only prose (no table) should get a table header
+        inserted before the first row."""
+        path = tmp_path / "benchmark-history.md"
+        path.write_text("Some custom note only\n")
+
+        append_to_history(_make_report(), path, timestamp="2026-04-10 14:00")
+
+        content = path.read_text()
+        assert "Some custom note only" in content
+        assert "| Date |" in content  # table header added
+        assert "|------|" in content  # separator added
+        assert "**PASS**" in content  # row added
+
+    def test_prose_after_table_preserved(self, tmp_path):
+        """Prose after the table should be preserved, and the new row
+        should be inserted inside the table, not after the prose."""
+        path = tmp_path / "benchmark-history.md"
+        path.write_text(
+            "# Benchmark History\n\n"
+            "| Date | Verdict | Cost Δ | Lenient Δ | Quality Δ | Tokens Δ | Time Δ | Tasks |\n"
+            "|------|---------|--------|-----------|-----------|----------|--------|-------|\n"
+            "| old | **MIXED** | 0% | 0pp | 0 | 0% | 0% | 0 |\n"
+            "\n"
+            "## Notes\n\n"
+            "Some notes after the table.\n"
+        )
+
+        append_to_history(_make_report(verdict="PASS"), path, timestamp="2026-04-11 10:00")
+
+        content = path.read_text()
+        assert "Some notes after the table." in content
+        assert "**PASS**" in content
+
+        # The new row should appear BEFORE the notes section
+        pass_pos = content.index("**PASS**")
+        notes_pos = content.index("## Notes")
+        assert pass_pos < notes_pos, "New row should be inside the table, before the notes"
