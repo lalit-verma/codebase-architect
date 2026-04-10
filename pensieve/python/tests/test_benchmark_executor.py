@@ -280,6 +280,22 @@ class TestErrorHandling:
         assert out["response"] == "Not logged in"
 
     @mock.patch("pensieve.benchmark.executor.subprocess.run")
+    def test_nonzero_returncode_with_parseable_json(self, mock_run):
+        """Non-zero exit code must produce an error even if stdout
+        contains valid parseable JSON."""
+        mock_run.return_value = mock.MagicMock(
+            stdout=_make_claude_json_output(result="done"),
+            stderr="fatal transport issue",
+            returncode=1,
+        )
+        ex = ClaudeCodeExecutor()
+        out = ex.execute("test", Path("/tmp"), "baseline")
+
+        assert "error" in out
+        assert "exited with code 1" in out["error"]
+        assert "fatal transport issue" in out["error"]
+
+    @mock.patch("pensieve.benchmark.executor.subprocess.run")
     def test_stderr_used_when_stdout_empty(self, mock_run):
         """When stdout is empty, stderr content should be in response."""
         mock_run.return_value = mock.MagicMock(

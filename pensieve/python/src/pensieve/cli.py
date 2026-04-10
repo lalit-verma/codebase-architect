@@ -142,6 +142,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Output directory for benchmark.json (default: <repo>/agent-docs)",
     )
+    run_parser.add_argument(
+        "--dev",
+        action="store_true",
+        default=False,
+        help=(
+            "Dev mode: run only the first template to save time. "
+            "Intended for Phase A/B development, not real benchmarking."
+        ),
+    )
 
     # --- hook subcommand (A3, A4) ---
     hook_parser = subparsers.add_parser(
@@ -272,6 +281,10 @@ def _cmd_benchmark(args) -> int:
         print("pensieve benchmark run: no templates to run", file=sys.stderr)
         return 1
 
+    # Dev mode: limit to first template to save time during Phase A/B
+    if args.dev and len(templates) > 1:
+        templates = templates[:1]
+
     # Resolve modes — benchmark comparison requires both modes.
     # If neither flag is given, run both (the default).
     # If both flags are given, run both (explicit).
@@ -316,8 +329,19 @@ def _cmd_benchmark(args) -> int:
         )
         return 1
 
-    print(f"Running benchmark on {repo_root}")
-    print(f"  templates: {len(templates)}  baseline: {run_bl}  framework: {run_fw}")
+    def _log(msg: str) -> None:
+        print(msg, flush=True)
+
+    def _on_progress(mode, name, idx, total, task_result):
+        if task_result is None:
+            _log(f"  [{mode}] {idx}/{total} {name} ...")
+        else:
+            status = "ok" if not task_result.error else f"ERR: {task_result.error[:60]}"
+            cost = f"${task_result.cost_usd:.3f}"
+            _log(f"  [{mode}] {idx}/{total} {name} -> {status} ({cost}, {task_result.time_seconds:.1f}s)")
+
+    _log(f"Running benchmark on {repo_root}")
+    _log(f"  templates: {len(templates)}  baseline: {run_bl}  framework: {run_fw}")
 
     result = run_benchmark(
         repo_root=repo_root,
@@ -325,6 +349,8 @@ def _cmd_benchmark(args) -> int:
         executor=executor,
         run_baseline=run_bl,
         run_framework=run_fw,
+        on_progress=_on_progress,
+        run_judge=True,
     )
 
     # Aggregate metrics
@@ -332,22 +358,22 @@ def _cmd_benchmark(args) -> int:
 
     # Write benchmark.json
     json_path = write_benchmark_json(report, output_dir / "benchmark.json")
-    print(f"  -> {json_path}")
+    _log(f"  -> {json_path}")
 
     # Append to benchmark-history.md
     history_path = append_to_history(report, output_dir / "benchmark-history.md")
-    print(f"  -> {history_path}")
+    _log(f"  -> {history_path}")
 
     # Print summary
     d = report.deltas
-    print(f"\n  Verdict: {report.verdict}")
-    print(f"  Cost:    {d.cost_pct:+.1f}%")
-    print(f"  Lenient: {d.lenient_pass_pp:+.1f}pp")
-    print(f"  Quality: {d.quality_diff:+.2f}")
-    print(f"  Tokens:  {d.tokens_pct:+.1f}%")
-    print(f"  Time:    {d.time_pct:+.1f}%")
-    print(f"  Tasks:   {max(report.with_framework.task_count, report.baseline.task_count)}")
-    print(f"  Total:   {report.total_time_seconds:.1f}s")
+    _log(f"\n  Verdict: {report.verdict}")
+    _log(f"  Cost:    {d.cost_pct:+.1f}%")
+    _log(f"  Lenient: {d.lenient_pass_pp:+.1f}pp")
+    _log(f"  Quality: {d.quality_diff:+.2f}")
+    _log(f"  Tokens:  {d.tokens_pct:+.1f}%")
+    _log(f"  Time:    {d.time_pct:+.1f}%")
+    _log(f"  Tasks:   {max(report.with_framework.task_count, report.baseline.task_count)}")
+    _log(f"  Total:   {report.total_time_seconds:.1f}s")
 
     return 0
 

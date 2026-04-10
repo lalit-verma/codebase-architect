@@ -21,7 +21,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Callable, Literal, Protocol
 
 from pensieve.benchmark.template import CheckerSpec, TaskTemplate
 
@@ -315,6 +315,8 @@ def run_task(
     executor: Executor,
     mode: Literal["baseline", "with_framework"],
     placeholder_values: dict[str, str] | None = None,
+    run_judge: bool = False,
+    judge_model: str = "sonnet",
 ) -> TaskResult:
     """Run a single benchmark task.
 
@@ -325,6 +327,8 @@ def run_task(
         mode: "baseline" or "with_framework".
         placeholder_values: Pre-computed placeholder values. If None,
             a PlaceholderFiller is created from the repo's structure.json.
+        run_judge: Whether to run the LLM judge for lenient/quality.
+        judge_model: Model for the LLM judge (default: sonnet).
 
     Returns:
         A TaskResult with all metrics and check results.
@@ -359,25 +363,69 @@ def run_task(
 
     elapsed = round(time.monotonic() - start, 3)
 
+    agent_response = result.get("response", "")
+
     # Run strict check
     strict_pass = run_strict_check(
         template.strict_checker,
         repo_root,
-        result.get("response", ""),
+        agent_response,
         placeholder_values,
     )
+
+    # Run LLM judge for lenient pass and quality score.
+    # Wrapped defensively: judge failure degrades one task, not the run.
+    lenient_pass = False
+    quality_score = 0.0
+    judge_error: str | None = None
+    if (
+        run_judge
+        and template.lenient_checker.checker_type == "llm_judge"
+        and template.lenient_checker.llm_prompt
+        and agent_response
+    ):
+        try:
+            from pensieve.benchmark.judge import judge_task
+
+            filled_prompt = template.lenient_checker.llm_prompt
+            try:
+                filled_prompt = filled_prompt.format(**placeholder_values)
+            except KeyError:
+                pass  # use unfilled prompt as fallback
+
+            judge_result = judge_task(
+                llm_prompt=filled_prompt,
+                agent_response=agent_response,
+                model=judge_model,
+            )
+            lenient_pass = judge_result.lenient_pass
+            quality_score = judge_result.quality_score
+            if judge_result.error:
+                judge_error = f"Judge: {judge_result.error}"
+        except Exception as exc:
+            # Judge failure must not crash the benchmark.
+            # lenient_pass stays False, quality_score stays 0.0.
+            judge_error = f"Judge crashed: {exc}"
+
+    # Combine executor error and judge error if both present
+    exec_error = result.get("error")
+    if exec_error and judge_error:
+        combined_error = f"{exec_error}; {judge_error}"
+    else:
+        combined_error = exec_error or judge_error
 
     return TaskResult(
         template_name=template.name,
         mode=mode,
         instruction=instruction,
-        agent_response=result.get("response", ""),
+        agent_response=agent_response,
         tokens_used=result.get("tokens", 0),
         cost_usd=result.get("cost_usd", 0.0),
         time_seconds=result.get("time_seconds", elapsed),
         strict_pass=strict_pass,
-        lenient_pass=False,  # set by LLM judge in A10
-        quality_score=0.0,  # set by LLM judge in A10
+        lenient_pass=lenient_pass,
+        quality_score=quality_score,
+        error=combined_error,
     )
 
 
@@ -481,12 +529,24 @@ class BenchmarkResult:
     total_time_seconds: float = 0.0
 
 
+ProgressCallback = Callable[[str, str, int, int, TaskResult | None], None]
+"""Callback signature: (mode, template_name, task_index, total_tasks, result_or_none).
+
+Called twice per task:
+  - Before execution: result is None
+  - After execution: result is the TaskResult
+"""
+
+
 def run_benchmark(
     repo_root: Path,
     templates: list[TaskTemplate],
     executor: Executor,
     run_baseline: bool = True,
     run_framework: bool = True,
+    on_progress: ProgressCallback | None = None,
+    run_judge: bool = False,
+    judge_model: str = "sonnet",
 ) -> BenchmarkResult:
     """Run the full benchmark: baseline + with_framework on all templates.
 
@@ -500,6 +560,9 @@ def run_benchmark(
         executor: Agent executor (real or mock).
         run_baseline: Whether to run baseline mode.
         run_framework: Whether to run with-framework mode.
+        on_progress: Optional callback for per-task progress reporting.
+        run_judge: Whether to run the LLM judge on each task.
+        judge_model: Model for the LLM judge.
 
     Returns:
         BenchmarkResult with per-task results for each mode.
@@ -512,6 +575,11 @@ def run_benchmark(
 
     baseline_results: list[TaskResult] = []
     framework_results: list[TaskResult] = []
+    total = len(templates)
+
+    def _notify(mode, name, idx, result=None):
+        if on_progress:
+            on_progress(mode, name, idx, total, result)
 
     # --- Phase 1: Ensure scan is done on the ORIGINAL repo ---
     agent_docs = repo_root / "agent-docs"
@@ -530,12 +598,16 @@ def run_benchmark(
         try:
             shutil.copytree(repo_root, fw_copy)
             fw_state = setup_framework(fw_copy)
-            for template in templates:
+            for i, template in enumerate(templates):
+                _notify("with_framework", template.name, i + 1)
                 result = run_task(
                     template, fw_copy, executor, "with_framework",
                     placeholder_values=placeholder_values,
+                    run_judge=run_judge,
+                    judge_model=judge_model,
                 )
                 framework_results.append(result)
+                _notify("with_framework", template.name, i + 1, result)
         finally:
             shutil.rmtree(fw_dir, ignore_errors=True)
 
@@ -546,12 +618,16 @@ def run_benchmark(
         try:
             shutil.copytree(repo_root, bl_copy)
             bl_state = setup_baseline(bl_copy)
-            for template in templates:
+            for i, template in enumerate(templates):
+                _notify("baseline", template.name, i + 1)
                 result = run_task(
                     template, bl_copy, executor, "baseline",
                     placeholder_values=placeholder_values,
+                    run_judge=run_judge,
+                    judge_model=judge_model,
                 )
                 baseline_results.append(result)
+                _notify("baseline", template.name, i + 1, result)
         finally:
             shutil.rmtree(bl_dir, ignore_errors=True)
 

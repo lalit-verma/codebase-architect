@@ -22,6 +22,21 @@ import pytest
 from pensieve.cli import main
 
 
+@pytest.fixture(autouse=True)
+def _mock_judge(monkeypatch):
+    """Prevent CLI tests from making real Claude Code calls for judging."""
+    from pensieve.benchmark import judge as judge_mod
+
+    def _fake_judge(llm_prompt, agent_response, model="sonnet", timeout_seconds=60):
+        return judge_mod.JudgeResult(
+            lenient_pass=False,
+            quality_score=5.0,
+            reasoning="mocked",
+        )
+
+    monkeypatch.setattr(judge_mod, "judge_task", _fake_judge)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

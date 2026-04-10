@@ -1,6 +1,6 @@
 # Code Pensieve — Build Plan
 
-> **Status:** Phase A resumed (A3–A12 complete, A13 next); Phase B Layer 1 (B1–B13) complete
+> **Status:** Phase A resumed (A3–A12b complete, A13 next); Phase B Layer 1 (B1–B13) complete
 > **Last updated:** 2026-04-10
 > **Owners:** Lalit + Claude (collaborative build)
 
@@ -109,7 +109,7 @@ new code). Everything else either supports these or is for human reference.
 
 | Phase | Goal | Status |
 |---|---|---|
-| **A** | Hooks + auto-benchmark | A1–A12 complete; A13–A15 remaining (need calibration repo) |
+| **A** | Hooks + auto-benchmark | A1–A12b complete; A13–A15 remaining |
 | **B** | AST extraction (Layer 1 + integration into Layer 2) | Layer 1 complete (B1–B13, 529 tests); Layer 2 integration (B14–B17) pending |
 | **C** | Multi-repo support | not started |
 | **D** | MCP, multi-platform, polish, distribution | not started |
@@ -208,8 +208,7 @@ infrastructure we need for every subsequent phase.
   registry, and per-template spot checks. 578/578 total tests pass.)*
 - [x] **A8.** Implement the baseline runner — runs each task without any
   `agent-docs/` present, measures tokens, cost, time, strict pass.
-  Lenient pass and quality score fields exist in TaskResult but are
-  populated by the LLM judge (pluggable, not part of A8).
+  Lenient pass and quality score populated by LLM judge (A12b).
   *(2026-04-10, updated after review: PlaceholderFiller (reads
   structure.json, excludes test dirs from pattern/subsystem heuristics),
   run_strict_check (file_exists, content_contains, symbol_exists),
@@ -248,8 +247,40 @@ infrastructure we need for every subsequent phase.
   error. Executor loaded via pluggable `pensieve.benchmark.executor`
   module (ImportError → clear message pointing to A13). On success:
   calls run_benchmark → aggregate_metrics → write_benchmark_json →
-  append_to_history, prints verdict summary. 18 tests. 695/695 total
-  pass.)*
+  append_to_history, prints verdict summary. Post-review fixes:
+  single-mode invocation rejected (comparative artifacts need both
+  modes), help strings updated. 18 tests. 722/722 total pass.)*
+- [x] **A12a.** Implement the Claude Code subprocess executor and
+  per-task progress logging. *(2026-04-10:
+  `src/pensieve/benchmark/executor.py` with ClaudeCodeExecutor. Invokes
+  `claude -p --output-format json --permission-mode auto
+  --no-session-persistence`. Parses JSON output for response, tokens
+  (input+output+cache_read+cache_creation), cost (total_cost_usd),
+  timing (duration_ms). Configurable: model, budget cap, permission
+  mode, timeout, extra args. Factory function create_executor() for
+  CLI import. Error handling: timeout, claude not found, empty stdout,
+  invalid JSON, Claude Code error response. Post-review fix: non-zero
+  subprocess exit code treated as failure even if stdout has parseable
+  JSON — preserves partial data but marks as error with exit code and
+  stderr. Progress callback added to run_benchmark() with flushed
+  per-task logging in CLI. 23 tests. 743/743 total pass.)*
+- [x] **A12b.** Implement the LLM judge for lenient pass and quality score.
+  *(2026-04-10: `src/pensieve/benchmark/judge.py` with judge_task().
+  Invokes `claude -p --output-format json --json-schema --bare --model
+  sonnet` for cost-efficient evaluation. Returns JudgeResult with
+  lenient_pass (bool), quality_score (0-10), reasoning, error.
+  Structured output via --json-schema (verdict PASS/FAIL + quality +
+  reasoning). Fallback parsing when structured_output missing. Wired
+  into run_task via run_judge flag (default False, CLI passes True).
+  run_benchmark propagates run_judge/judge_model to all run_task calls.
+  Executor also updated: flags 0-token/0-cost responses as errors.
+  Runner propagates executor error into TaskResult.error. CLI --dev
+  flag limits to 1 template for Phase A/B development. Post-review
+  fixes: non-zero subprocess exit code in judge treated as failure,
+  malformed quality field (non-numeric) degrades to 0.0 instead of
+  crashing, non-dict structured_output handled, runner wraps
+  judge_task() defensively with error surfaced in TaskResult.error
+  (not silently swallowed). 20 tests. 743/743 total pass.)*
 - [ ] **A13.** Run on the calibration repo (same repo + same 30 tasks the
   teammate has been benchmarking externally).
 - [ ] **A14.** Compare auto-benchmark results to the teammate's most

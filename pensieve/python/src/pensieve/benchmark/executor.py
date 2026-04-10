@@ -131,11 +131,26 @@ class ClaudeCodeExecutor:
                 "error": "Failed to parse JSON output from Claude Code",
             }
 
+        # Non-zero exit code = failed invocation, even if JSON is parseable.
+        # Preserve whatever data exists but mark as error.
+        if result.returncode != 0:
+            error_msg = data.get("result", result.stderr.strip() or "Unknown error")
+            return {
+                "response": error_msg if isinstance(error_msg, str) else str(error_msg),
+                "tokens": 0,
+                "cost_usd": data.get("total_cost_usd", 0.0),
+                "time_seconds": elapsed,
+                "error": (
+                    f"Claude Code exited with code {result.returncode}. "
+                    f"stderr: {result.stderr.strip()[:200]}"
+                ),
+            }
+
         # Check for error in Claude Code response
         if data.get("is_error"):
             error_msg = data.get("result", "Unknown error")
             return {
-                "response": error_msg,
+                "response": error_msg if isinstance(error_msg, str) else str(error_msg),
                 "tokens": 0,
                 "cost_usd": data.get("total_cost_usd", 0.0),
                 "time_seconds": elapsed,
@@ -150,12 +165,25 @@ class ClaudeCodeExecutor:
         cache_creation = usage.get("cache_creation_input_tokens", 0)
         total_tokens = input_tokens + output_tokens + cache_read + cache_creation
 
-        return {
+        result_dict = {
             "response": data.get("result", ""),
             "tokens": total_tokens,
             "cost_usd": data.get("total_cost_usd", 0.0),
             "time_seconds": data.get("duration_ms", elapsed * 1000) / 1000,
         }
+
+        # Flag suspicious responses: Claude Code returned "success" but
+        # with no tokens and no cost — likely an internal timeout or
+        # session limit, not a real completion.
+        if total_tokens == 0 and data.get("total_cost_usd", 0.0) == 0.0:
+            stop = data.get("stop_reason", "unknown")
+            terminal = data.get("terminal_reason", "unknown")
+            result_dict["error"] = (
+                f"Claude Code returned 0 tokens/0 cost "
+                f"(stop_reason={stop}, terminal_reason={terminal})"
+            )
+
+        return result_dict
 
     def _build_command(self, instruction: str) -> list[str]:
         """Build the claude CLI command."""
