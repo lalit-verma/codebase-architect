@@ -91,10 +91,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Model for LLM calls (default: sonnet)",
     )
     analyze_parser.add_argument(
-        "--output-dir", type=str, default=None,
-        help="Output directory (default: <repo>/agent-docs)",
-    )
-    analyze_parser.add_argument(
         "--proposal-timeout", type=int, default=300,
         help="Timeout in seconds for subsystem proposal LLM call (default: 300)",
     )
@@ -610,7 +606,7 @@ def _cmd_analyze(args) -> int:
     if analyze_parallelism < 1:
         print("pensieve analyze: --analyze-parallelism must be >= 1", file=sys.stderr)
         return 1
-    output_dir = Path(args.output_dir) if args.output_dir else repo_root / "agent-docs"
+    output_dir = repo_root / "agent-docs"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     structure_path = output_dir / "structure.json"
@@ -686,6 +682,7 @@ def _cmd_analyze(args) -> int:
     structural_context = format_profiles_for_llm(profile)
     discover_result = run_discover(
         repo_root, structural_context,
+        subsystem_map=smap,
         model=model, timeout_seconds=proposal_timeout,
     )
     if discover_result.error:
@@ -852,10 +849,33 @@ def _cmd_analyze(args) -> int:
     route_path = generate_route_index(smap, output_dir)
     _log(f"  -> {route_path}")
 
+    # --- Post-synthesis verification ---
+    _REQUIRED_ARTIFACTS = [
+        "agent-context.md",
+        "agent-context-nano.md",
+        "patterns.md",
+        "routing-map.md",
+        "system-overview.md",
+        "agent-brief.md",
+        "index.md",
+        "agent-protocol.md",
+    ]
+    missing = [name for name in _REQUIRED_ARTIFACTS if not (output_dir / name).exists()]
+    if missing:
+        _log(f"\n  SYNTHESIS INCOMPLETE — missing required artifacts:")
+        for name in missing:
+            _log(f"    - {name}")
+        _log(f"  {len(_REQUIRED_ARTIFACTS) - len(missing)}/{len(_REQUIRED_ARTIFACTS)} artifacts present")
+    else:
+        _log(f"  all {len(_REQUIRED_ARTIFACTS)} required artifacts verified")
+
     # --- Summary ---
     _log(f"\nAnalysis complete:")
     _log(f"  subsystems: {len(successful)}/{len(smap.subsystems)}")
     _log(f"  output: {output_dir}")
+    if missing:
+        _log(f"  STATUS: INCOMPLETE — {len(missing)} required artifacts missing")
+        return 1
 
     return 0
 

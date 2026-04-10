@@ -76,16 +76,24 @@ def _call_llm(
     model: str = "sonnet",
     timeout_seconds: int = 300,
     cwd: str | None = None,
+    allow_tools: bool = False,
 ) -> tuple[str, str | None]:
-    """Call Claude Code in text mode. Returns (output, error_or_none)."""
+    """Call Claude Code in text mode. Returns (output, error_or_none).
+
+    Args:
+        allow_tools: If True, run with --permission-mode auto so Claude
+            can use Read/Write/Bash tools to write files directly.
+    """
     cmd = [
         "claude", "-p",
         "--output-format", "text",
         "--model", model,
         "--no-session-persistence",
         "--system-prompt", system_prompt,
-        user_prompt,
     ]
+    if allow_tools:
+        cmd.extend(["--permission-mode", "auto"])
+    cmd.append(user_prompt)
     kwargs: dict = {
         "capture_output": True,
         "text": True,
@@ -128,6 +136,7 @@ class DiscoverResult:
 def run_discover(
     repo_root: Path,
     structural_context: str,
+    subsystem_map: SubsystemMap | None = None,
     repo_description: str = "",
     model: str = "sonnet",
     timeout_seconds: int = 300,
@@ -137,8 +146,9 @@ def run_discover(
     The v1 prompt is used as the system prompt. The structural data
     from Layer 1 is injected as additional context in the user message.
 
-    For programmatic execution, we adapt: skip confirmation steps,
-    output the files directly.
+    If subsystem_map is provided, it is the authoritative subsystem
+    mapping (from Python's propose_subsystems). The discover prompt
+    uses it as the confirmed subsystem map rather than proposing its own.
     """
     try:
         v1_prompt = _read_v1_prompt("analyze-discover.md")
@@ -160,21 +170,35 @@ def run_discover(
         "---FILE: .analysis-state.md---\n"
     )
 
+    # Build subsystem map context if provided
+    smap_context = ""
+    if subsystem_map and subsystem_map.subsystems:
+        smap_lines = ["## Authoritative Subsystem Map (from structural analysis)\n",
+                       "Use this as the confirmed subsystem mapping. Do NOT propose "
+                       "a different map — this is pre-confirmed.\n"]
+        for s in subsystem_map.subsystems:
+            smap_lines.append(f"- **{s.name}**: {', '.join(s.directories)} — {s.role}")
+        if subsystem_map.excluded:
+            smap_lines.append("\nExcluded directories:")
+            for e in subsystem_map.excluded:
+                smap_lines.append(f"- {e['directory']}: {e['reason']}")
+        smap_context = "\n".join(smap_lines) + "\n\n"
+
     user_prompt = (
         f"## Layer 1 Structural Evidence\n\n"
         f"The repository has been scanned by pensieve. The following "
         f"structural data is available in agent-docs/structure.json and "
-        f"agent-docs/graph.json. Use this evidence for subsystem detection "
-        f"and architecture mapping — it is more complete than manual "
-        f"file exploration.\n\n"
+        f"agent-docs/graph.json. Use this evidence for architecture "
+        f"mapping — it is more complete than manual file exploration.\n\n"
         f"{structural_context}\n\n"
-        f"Analyze this repository and produce the Phase 1 outputs."
+        f"{smap_context}"
+        f"Produce the Phase 1 outputs (system-overview.md and .analysis-state.md)."
     )
 
     output, err = _call_llm(
         system_prompt, user_prompt,
         model=model, timeout_seconds=timeout_seconds,
-        cwd=str(repo_root),
+        cwd=str(repo_root), allow_tools=True,
     )
 
     if err:
@@ -373,7 +397,7 @@ def run_synthesize(
     output, err = _call_llm(
         system_prompt, user_prompt,
         model=model, timeout_seconds=timeout_seconds,
-        cwd=str(repo_root),
+        cwd=str(repo_root), allow_tools=True,
     )
 
     if err:

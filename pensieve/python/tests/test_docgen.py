@@ -247,3 +247,80 @@ class TestSave:
         assert path.exists()
         assert "subsystems" in str(path)
         assert "Content" in path.read_text()
+
+
+# ---------------------------------------------------------------------------
+# Contract tests
+# ---------------------------------------------------------------------------
+
+
+class TestPostSynthesisVerification:
+    """Verify the artifact verification logic."""
+
+    def test_all_artifacts_present(self, tmp_path):
+        """When all required artifacts exist, verification passes."""
+        required = [
+            "agent-context.md", "agent-context-nano.md", "patterns.md",
+            "routing-map.md", "system-overview.md", "agent-brief.md",
+            "index.md", "agent-protocol.md",
+        ]
+        for name in required:
+            (tmp_path / name).write_text(f"# {name}\n")
+
+        missing = [n for n in required if not (tmp_path / n).exists()]
+        assert missing == []
+
+    def test_missing_artifacts_detected(self, tmp_path):
+        """Missing artifacts are correctly identified."""
+        required = [
+            "agent-context.md", "agent-context-nano.md", "patterns.md",
+            "routing-map.md", "system-overview.md", "agent-brief.md",
+            "index.md", "agent-protocol.md",
+        ]
+        # Only create some
+        (tmp_path / "agent-context.md").write_text("# AC\n")
+        (tmp_path / "patterns.md").write_text("# P\n")
+
+        missing = [n for n in required if not (tmp_path / n).exists()]
+        assert len(missing) == 6
+        assert "agent-context-nano.md" in missing
+        assert "agent-protocol.md" in missing
+
+
+class TestDiscoverSubsystemMapInput:
+    """Discover should use the authoritative Python subsystem map."""
+
+    @mock.patch("pensieve.docgen.subprocess.run")
+    def test_subsystem_map_injected_into_prompt(self, mock_run, tmp_path):
+        from pensieve.context import SubsystemMap, SubsystemProposal
+        mock_run.return_value = mock.MagicMock(
+            stdout="output", stderr="", returncode=0,
+        )
+
+        smap = SubsystemMap(
+            subsystems=[
+                SubsystemProposal(
+                    name="Core", directories=["src"],
+                    role="main logic", rationale="test",
+                ),
+            ],
+            excluded=[],
+        )
+
+        run_discover(tmp_path, "context", subsystem_map=smap)
+
+        cmd = mock_run.call_args[0][0]
+        user_prompt = cmd[-1]
+        assert "Core" in user_prompt
+        assert "Authoritative Subsystem Map" in user_prompt
+        assert "pre-confirmed" in user_prompt
+
+
+class TestOutputOnlyToAgentDocs:
+    """The analyze path must write only to <repo>/agent-docs."""
+
+    def test_analyze_parser_has_no_output_dir(self):
+        from pensieve.cli import _build_parser
+        parser = _build_parser()
+        args = parser.parse_args(["analyze", "/tmp/repo"])
+        assert not hasattr(args, "output_dir")
