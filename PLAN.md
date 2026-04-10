@@ -319,7 +319,21 @@ infrastructure we need for every subsequent phase.
   ready. Full run needed to produce valid A13 numbers.)*
 - [ ] **A14.** Compare auto-benchmark results to the teammate's most
   recent external benchmark. Discrepancies are bugs in our measurement,
-  not in the framework — fix them before continuing.
+  not in the framework — fix them before continuing. Investigation
+  checklist includes a "public-repo familiarity" ablation:
+  - Hypothesis: if the calibration repo is based on a widely used public
+    project (for example OpenWebUI or another heavily copied OSS codebase),
+    baseline performance may already be unusually strong because the model
+    has seen similar code during pretraining. This would compress the
+    apparent benefit of docs/wiring without implying the docs are useless.
+  - Test: compare the same frozen generated-task benchmark on
+    1. a public / popular repo,
+    2. a less-public or more idiosyncratic repo,
+    3. tasks that depend on repo-specific conventions vs generic coding
+       tasks.
+  - Logging requirement: for with-framework runs, record whether the
+    generated docs/context were actually consulted, so we can distinguish
+    "docs not helpful" from "docs never used."
 - [ ] **A15.** Iterate on hook content / positioning if Phase A's proceed
   criterion isn't met on the first run. Don't skip ahead.
 

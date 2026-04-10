@@ -56,7 +56,7 @@ def judge_task(
     llm_prompt: str,
     agent_response: str,
     model: str = "sonnet",
-    timeout_seconds: int = 60,
+    timeout_seconds: int = 120,
 ) -> JudgeResult:
     """Evaluate a task result using Claude as a judge.
 
