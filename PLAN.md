@@ -1385,6 +1385,26 @@ and users adopt it.
 
 *(filled as we work)*
 
+- **Future extension (not prioritized now): broaden Pensieve beyond
+  source-code AST files.** Today the strongest structural support is for
+  supported source languages extracted into `structure.json` /
+  `graph.json`. This means `brief` is strongest on code-heavy
+  subsystems and weaker on infra/config-heavy slices such as Docker,
+  shell, Makefiles, and YAML/JSON config. A later extension path is to
+  add non-code structural extractors / heuristics for:
+  - Dockerfiles
+  - docker-compose / compose YAML
+  - shell scripts
+  - Makefiles
+  - selected high-value YAML/JSON config classes (Kubernetes, CI,
+    OpenAPI, app config)
+  
+  Important: this is **not** a current priority. Do not pull this into
+  Phase B / Bx / By unless it becomes a real blocker. The right model,
+  if/when we do it, is to extend the structural extraction layer with
+  file-type-appropriate representations, not to pretend config files are
+  code ASTs.
+
 ---
 
 ## Decisions log
