@@ -162,27 +162,56 @@ Check whether this subsystem should be decomposed:
 - 3+ internal modules that each have their own contracts or entrypoints
 
 **If triggered:**
-Present the decomposition proposal in chat:
+Present the decomposition proposal in chat. For each child, list the
+exact directories, not just a name:
 
 > This subsystem is large enough to decompose into sub-modules:
-> - **{sub-1}** (`{path}`): {responsibility} ({N} files)
-> - **{sub-2}** (`{path}`): {responsibility} ({N} files)
-> - **{sub-3}** (`{path}`): {responsibility} ({N} files)
+> - **{child-1}** — dirs: `{dir1}`, `{dir2}` — {responsibility} (~{N} files)
+> - **{child-2}** — dirs: `{dir3}` — {responsibility} (~{N} files)
+> - **{child-3}** — dirs: `{dir4}`, `{dir5}` — {responsibility} (~{N} files)
 >
 > I'll write a parent overview doc plus individual sub-module docs.
+> Each child will get its own `pensieve brief` for structural evidence.
 > **Confirm? Or should I analyze as a single unit?**
 
 Wait for user confirmation before proceeding.
 
 **If confirmed for recursion:**
-- Write parent doc at `agent-docs/subsystems/{name}.md` covering:
-  overview, internal map, cross-cutting concerns, how sub-modules
-  connect
-- Deep-dive each sub-module, writing to
-  `agent-docs/subsystems/{name}/{child}.md`
-- Apply the same analysis procedure to each child
-- Recursion applies up to depth 3. At depth 3: summarize, don't
-  decompose further.
+
+1. Write the **parent doc** at `agent-docs/subsystems/{name}.md`
+   covering: overview, internal map, cross-cutting concerns, how
+   sub-modules connect. Use the parent brief for this.
+
+2. **For each child sub-module, restart from Step 0 using that child's
+   dirs.** This means:
+   - Run `pensieve brief <child dirs>` for the child's specific
+     directories (not the parent's dirs)
+   - Read that child's brief
+   - Follow Step 1 (file selection guided by the child brief)
+   - Follow Step 3 (analysis using the child brief's dependencies)
+   - Write the child doc to
+     `agent-docs/subsystems/{name}/{child}.md`
+
+   **Do not reuse the parent brief as the primary structural input for
+   child analysis.** The parent brief covers the entire parent
+   subsystem — it does not have the internal detail of each child's
+   file-to-file relationships. Each child needs its own brief.
+
+3. Recursion applies up to depth 3. At depth 3: summarize, don't
+   decompose further.
+
+4. Update `agent-docs/.analysis-state.md` to record the recursion:
+   ```
+   recursion_applied:
+     - parent: {subsystem-name}
+       children:
+         - name: {child-1}
+           dirs: [{dir1}, {dir2}]
+           status: completed
+         - name: {child-2}
+           dirs: [{dir3}]
+           status: completed
+   ```
 
 **If NOT triggered or user declines:**
 Proceed with a single flat document.
