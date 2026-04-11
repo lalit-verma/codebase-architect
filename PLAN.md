@@ -45,6 +45,35 @@ them, it doesn't ship.
 7. **Honest about failure modes.** Worked examples with `review.md` files
    listing what we got right AND wrong.
 
+### Standing Review Lens
+
+Use this lens for every implementation review on this project:
+
+1. **Architectural fidelity.** Does the implementation match the current
+   intended architecture, or does it quietly revive an old path or create
+   ambiguity?
+2. **Layer discipline.** Deterministic extraction stays deterministic,
+   LLM interpretation stays in the interpretation layer, and harness logic
+   routes/delivers instead of becoming a second doc system.
+3. **Moat alignment.** Prefer work that strengthens the real moat:
+   structural extraction, structural compression, harness routing, and
+   telemetry / measurement.
+4. **Agent utility over human elegance.** Optimize for coding-agent
+   usefulness: faster routing, better targeting, fewer blind reads,
+   clearer invariants.
+5. **Benchmarkability.** Preserve the ability to measure baseline vs
+   framework honestly.
+6. **Scalability to the vision.** Favor changes that make Bx and
+   multi-repo easier, not local hacks that will break later.
+7. **Single-path honesty.** One clear supported workflow; no shadow
+   paths, stale contracts, or mixed narratives.
+8. **Simplicity with leverage.** Choose the simplest change that
+   materially advances the system; avoid premature overengineering.
+9. **Failure-mode honesty.** Make stale-data risks, caveats, and
+   assumptions explicit instead of overclaiming confidence.
+10. **Preservation of decision clarity.** The code and plan should make
+    future sessions easier to align, not harder.
+
 ---
 
 ## Architecture (three layers)
@@ -1113,7 +1142,40 @@ we publish honest lessons and reconsider scope.
 
 ### Phase C notes
 
-*(filled as we work)*
+- **2026-04-11 — Discipline note: multi-repo is the strategic payoff,
+  not the next shortcut.** The current thesis is:
+  - single-repo proves the mechanism
+  - multi-repo is where the payoff could become substantially larger
+  because raw LLM exploration degrades much faster across repo
+  boundaries than within one repo.
+  
+  Why this likely matters:
+  - agents are weak at building reliable cross-repo maps on their own
+  - cross-repo ownership, contracts, and coupling are expensive to infer
+    manually
+  - search space grows sharply with each added service/repo
+  - deterministic extraction and routing should compound in value when
+    the agent has to answer "which repo/subsystem should I touch first?"
+  
+  But the sequencing rule is strict:
+  - do **not** jump to multi-repo productization early
+  - first prove the single-repo routing stack works end-to-end:
+    deterministic extraction (`scan`, `brief`) → agent-facing
+    compression → harness routing → telemetry → benchmark lift
+  - only then extend the same model across repos
+  
+  Operational interpretation:
+  - `scan` / `brief` are still the structural moat
+  - Bx must prove that the harness actually uses that moat well on a
+    single repo before Phase C starts
+  - Phase C is justified only if the mechanism is already validated
+    locally and cross-repo is the next multiplicative surface, not a
+    distraction from unresolved single-repo weakness
+  
+  Keep this discipline across sessions: multi-repo is the strongest
+  theoretical niche, but we earn the right to build it by first showing
+  that the single-repo stack measurably improves routing, search
+  efficiency, and benchmark outcomes.
 
 ---
 
