@@ -1,6 +1,6 @@
 # Code Pensieve — Build Plan
 
-> **Status:** Phase A: A1–A12b complete, A13 provisional; Phase B: Layer 1 complete, Layer 2 = v1 prompts + Layer 1 evidence (pensieve scan → v1 slash commands). `pensieve analyze` removed. Phase Bx planned for harness routing. Phase By planned for sustainable doc maintenance.
+> **Status:** Phase A: A1–A12b complete, A13 provisional; Phase B: Layer 1 + Layer 2 complete (B15 validated v2 docs as superior). B16 (benchmark) next. Phase Bx planned for harness routing. Phase By planned for sustainable doc maintenance.
 > **Last updated:** 2026-04-12
 > **Owners:** Lalit + Claude (collaborative build)
 
