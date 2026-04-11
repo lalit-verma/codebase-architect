@@ -139,7 +139,7 @@ new code). Everything else either supports these or is for human reference.
 | Phase | Goal | Status |
 |---|---|---|
 | **A** | Hooks + auto-benchmark | A1–A12b complete. A13 provisional (infra validated, awaiting v2 docs). A14–A15 blocked on A13. |
-| **B** | AST extraction + evidence for v1 doc generation | Layer 1 complete (B1–B13). Layer 2: v1 prompts + Layer 1 evidence. `pensieve scan` provides structural data, v1 slash commands generate docs. B15–B16 next. |
+| **B** | AST extraction + evidence for v1 doc generation | Layer 1 complete (B1–B13). Layer 2 complete (B14-B15). B16 (benchmark) next. |
 | **Bx** | Adaptive wiring and structural routing | foundation started (Bx1, Bx5 shipped; routing layer not yet implemented) |
 | **By** | Sustainable maintenance and freshness strategy | not started |
 | **C** | Multi-repo support | not started |
@@ -728,8 +728,39 @@ foundation that multi-repo cross-edge detection needs in Phase C.
   `/analyze-deep-dive {subsystem}` (uses `pensieve brief`) →
   `/analyze-synthesize` → `pensieve wire`.
 
-- [ ] **B15.** Run v1 slash commands on calibration repo with structural
+- [x] **B15.** Run v1 slash commands on calibration repo with structural
   data. Compare output quality to v1-without-structural-data.
+  *(2026-04-12: Full v1 pipeline run on socrates/socrates with pensieve
+  scan + brief providing structural evidence. Independent review by
+  Codex comparing v2 (with structural data) vs v1 (without).
+
+  Results — v2 wins decisively on completeness, narrowly on soundness,
+  broadly on usability:
+  - Completeness: 18+8 subsystem docs vs 12. 31 patterns vs 10.
+    5 dedicated subsystems v1 entirely lacked (auth-access-control,
+    chat-middleware, llm-providers, plugins-tools-functions, telemetry).
+    2 recursive sub-module trees (frontend-sveltekit/4, retrieval-rag/4).
+  - Soundness: v2 has uniform commit provenance (b35c375c5) vs v1's
+    mixed SHAs (f6338ab + be96963). v2 has line-anchored evidence
+    throughout. Both are factually correct on verified spot checks.
+    v1 slightly more accurate on a few file counts (web search: v1=27
+    vs v2=17 vs actual=28).
+  - Usability: v2 wins at every retrieval ladder tier except nano
+    (identical). v2's per-doc size is 2-4x larger but sub-module
+    splits mitigate token pressure. v2's patterns.md captures
+    security/perf gotchas v1 misses (bypass_filter CVE, JWT JTI
+    revocation, Fernet encrypted config, RAG UUID quoting defense).
+  - Task coverage: v2 wins strongly on architecture questions,
+    localized bug fixes (line anchors), cross-subsystem changes
+    (dedicated docs), frontend changes (sub-module split), plugin
+    development (v2-only coverage). Tie on onboarding (same nano)
+    and simple pattern-following tasks.
+
+  Key finding: structural-profiles.md and pensieve brief measurably
+  improved subsystem detection (18 vs 12) and evidence grounding
+  (line-anchored functions/methods vs file-level pointers). The
+  structural data's main contribution was thoroughness — v2 found
+  subsystems and patterns that v1's cold exploration missed.)*
 - [ ] **B16.** Run benchmark with new docs. Compare to baseline.
 - ~~**B17.**~~ *(merged into B14, then reset twice)*
 
@@ -745,7 +776,7 @@ foundation that multi-repo cross-edge detection needs in Phase C.
 4. Re-runs on unchanged files take <10% of first-run time on the
    calibration repo (cache is working).
 
-### Phase B status: Layer 1 complete (B1–B13), Layer 2 B14 complete (v1 prompts + Layer 1 evidence), B15–B16 next
+### Phase B status: Layer 1 complete (B1–B13), Layer 2 complete (B14-B15 — v2 docs validated as superior to v1), B16 (benchmark) next
 
 ### Phase B notes
 
