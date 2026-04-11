@@ -1,7 +1,7 @@
 # Code Pensieve — Build Plan
 
-> **Status:** Phase A: A1–A12b complete, A13 provisional; Phase B: Layer 1 complete, Layer 2 = v1 prompts + Layer 1 evidence (pensieve scan → v1 slash commands). `pensieve analyze` removed.
-> **Last updated:** 2026-04-11
+> **Status:** Phase A: A1–A12b complete, A13 provisional; Phase B: Layer 1 complete, Layer 2 = v1 prompts + Layer 1 evidence (pensieve scan → v1 slash commands). `pensieve analyze` removed. Phase Bx planned for harness routing. Phase By planned for sustainable doc maintenance.
+> **Last updated:** 2026-04-12
 > **Owners:** Lalit + Claude (collaborative build)
 
 A vessel for codebase memories. Coding agents draw from the store on demand
@@ -140,6 +140,8 @@ new code). Everything else either supports these or is for human reference.
 |---|---|---|
 | **A** | Hooks + auto-benchmark | A1–A12b complete. A13 provisional (infra validated, awaiting v2 docs). A14–A15 blocked on A13. |
 | **B** | AST extraction + evidence for v1 doc generation | Layer 1 complete (B1–B13). Layer 2: v1 prompts + Layer 1 evidence. `pensieve scan` provides structural data, v1 slash commands generate docs. B15–B16 next. |
+| **Bx** | Adaptive wiring and structural routing | foundation started (Bx1, Bx5 shipped; routing layer not yet implemented) |
+| **By** | Sustainable maintenance and freshness strategy | not started |
 | **C** | Multi-repo support | not started |
 | **D** | MCP, multi-platform, polish, distribution | not started |
 
@@ -1076,6 +1078,116 @@ The most likely 80/20 remains:
 4. `brief` lifecycle
 
 Everything after that must earn its complexity by benchmark lift.
+
+---
+
+## Phase By — Sustainable Maintenance And Freshness
+
+**Goal.** Make the system usable in real repos without turning doc
+maintenance into a permanent tax. The core idea is to keep the cheap,
+deterministic structural layer fresh, use `brief` as the on-demand
+subsystem freshness mechanism, and refresh expensive interpreted docs
+selectively instead of rebuilding everything by default.
+
+**Why this phase exists.** Full `analyze-deep-dive` runs are valuable,
+but they are legitimately expensive. In real use, “regenerate all deep
+docs every time” is not a sustainable maintenance model. We need a
+balanced strategy that preserves agent usefulness while keeping cost and
+operational overhead under control.
+
+**Architecture stance.**
+- `pensieve scan` is the continuously maintainable layer.
+- `pensieve brief` is the on-demand fresh zoom layer.
+- deep-dive subsystem docs are curated, expensive assets refreshed
+  selectively.
+- synthesized top-level docs (`agent-context.md`, nano, patterns,
+  routing-map, etc.) are regenerated only when enough meaningful change
+  has accumulated.
+- harnesses should degrade gracefully toward fresh structural artifacts
+  (`structural-profiles.md`, `brief`) when interpreted docs may be stale.
+
+**Design principles for maintenance.**
+1. Do not optimize for perfect freshness of every deep doc.
+2. Optimize for cheap structural freshness plus on-demand subsystem
+   freshness.
+3. Make stale state visible rather than forcing full rebuilds.
+4. Refresh expensive docs selectively, based on changed scope and actual
+   usage value.
+5. Keep the system useful even when some interpreted docs lag behind the
+   latest scan.
+
+### Milestones
+
+- [ ] **By1.** Define a tiered freshness model.
+  Formalize artifact tiers:
+  - Tier 1: cheap/frequent (`scan`, `structural-profiles.md`, `brief`)
+  - Tier 2: expensive/selective (subsystem deep dives, `patterns.md`,
+    synthesized top-level docs)
+  Document which tier each artifact belongs to and what “fresh enough”
+  means for each.
+
+- [ ] **By2.** Mark interpreted docs as stale relative to the latest
+  structural scan.
+  Add a clear way to tell when a subsystem doc or synthesized doc is
+  older than the latest `structure.json` / `graph.json` generation.
+  This should support graceful fallback, not force immediate rebuild.
+
+- [ ] **By3.** Define selective-refresh rules for subsystem docs.
+  Instead of “rerun everything,” define when to refresh only a subset:
+  - changed directories / affected subsystem boundaries
+  - high-change or high-value subsystems
+  - explicitly requested subsystems
+  - benchmark-critical / onboarding-critical areas
+
+- [ ] **By4.** Make `brief` the freshness escape hatch for active work.
+  Document and implement the rule that when deep docs may be stale,
+  harnesses and slash commands should prefer fresh `brief` output for
+  the active subsystem rather than forcing deep-doc regeneration.
+
+- [ ] **By5.** Define selective-refresh rules for synthesized top-level
+  docs.
+  `agent-context.md`, nano, `patterns.md`, and `routing-map.md` should
+  regenerate when enough meaningful change accumulates, not on every
+  tiny edit. Spell out the triggers:
+  - subsystem boundaries changed
+  - important patterns changed
+  - multiple core subsystems changed
+  - explicit rebuild requested
+
+- [ ] **By6.** Add stale/freshness-aware harness behavior.
+  When a routed artifact is stale:
+  - do not overclaim confidence
+  - prefer `brief` or `structural-profiles.md` if they are fresh
+  - surface lightweight guidance rather than blocking on rebuilds
+
+- [ ] **By7.** Benchmark the maintenance model.
+  Validate that the selective-refresh strategy:
+  - preserves or improves agent usefulness
+  - lowers maintenance cost/time
+  - avoids forcing full end-to-end doc regeneration in normal use
+
+### Proceed criterion (Phase By → Phase C)
+
+1. The system remains useful when only Tier 1 structural artifacts are
+   freshly regenerated.
+2. `brief` demonstrably covers the freshness gap for active subsystem
+   work without requiring full deep-doc rebuilds.
+3. Selective-refresh rules are clear enough that maintenance is cheap
+   and predictable across sessions.
+4. Harness behavior degrades gracefully when interpreted docs are stale.
+5. The maintenance model is simple enough to carry into multi-repo
+   rather than creating a larger regeneration tax there.
+
+### Phase By status: not started
+
+### Phase By notes
+
+- Deep docs are valuable, but they are expensive. Treat them as curated
+  assets, not continuously rebuilt truth.
+- `brief` is the intended on-demand freshness mechanism for subsystem
+  work.
+- This phase is about balancing cost, overhead, and quality honestly,
+  not maximizing documentation completeness.
 
 ---
 
