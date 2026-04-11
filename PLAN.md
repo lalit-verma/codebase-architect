@@ -934,16 +934,35 @@ hook ideas. We only implement the highest-leverage pieces:
   - routed vs fallback vs anti-thrash intervention
 
 - [ ] **Bx6.** Make `brief` a first-class harness primitive.
-  `pensieve brief <dirs>` should be cheap enough for routine use,
-  cacheable, and optionally materializable to predictable files such as
-  `agent-docs/briefs/{subsystem}.md`. Hooks and slash commands should be
-  able to route to or invoke it without exposing raw JSON.
+  `pensieve brief <dirs>` should be treated primarily as an **on-demand
+  structural primitive**, not as a new persisted doc layer. Preferred
+  model:
+  - stdout-first, deterministic tool call
+  - invoked or recommended by the harness at the moment of need
+  - used for subsystem-level coding context, file targeting, dependency
+    understanding, and test mapping
+  - no direct LLM reads of raw `structure.json` / `graph.json`
+  
+  Bx work should make this easy to consume by:
+  - extending `route-index.json` with brief-target metadata
+    (subsystem → dirs / invocation target)
+  - routing agents toward `pensieve brief` when subsystem work is
+    detected
+  - adding telemetry around brief suggestion/use
+  - optionally supporting subsystem-name-based invocation later if that
+    materially improves harness integration
+  
+  Do **not** make persisted brief files the primary architecture by
+  default. If caching/materialization is later needed for performance or
+  auditability, it should be an internal optimization behind the tool,
+  not the main mental model.
 
 - [ ] **Bx7.** Add freshness and validity checks for routed artifacts.
   Routing should not rely on stale structural summaries. Add stage-
   specific fingerprints for:
   - `structural-profiles.md`
-  - `brief` outputs
+  - `brief`-related routing metadata / any internal brief cache if one
+    is later added
   - route index
   - discover outputs
   - synthesis outputs
