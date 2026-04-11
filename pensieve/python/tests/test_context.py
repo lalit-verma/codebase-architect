@@ -563,8 +563,8 @@ class TestSubsystemBrief:
     def test_contains_subsystem_brief_tags(self, tmp_path):
         sp, gp = self._make_repo(tmp_path)
         output = format_subsystem_brief(["src/models"], sp, gp)
-        assert "<subsystem_brief" in output
-        assert "</subsystem_brief>" in output
+        assert "<brief" in output
+        assert "</brief>" in output
 
     def test_shows_all_file_signatures(self, tmp_path):
         sp, gp = self._make_repo(tmp_path)
@@ -637,11 +637,11 @@ class TestValidateSubsystemBrief:
 
     def test_missing_brief_tag(self):
         errors = validate_subsystem_brief("some random text")
-        assert any("subsystem_brief" in e.lower() for e in errors)
+        assert any("brief" in e.lower() for e in errors)
 
     def test_error_attribute_detected(self):
         errors = validate_subsystem_brief(
-            '<subsystem_brief error="Failed">\n</subsystem_brief>'
+            '<brief error="Failed">\n</brief>'
         )
         assert any("error" in e.lower() for e in errors)
 
@@ -688,7 +688,7 @@ class TestFaultTolerance:
         ])
         fake_graph = tmp_path / "nonexistent.json"
         output = format_subsystem_brief(["src"], sp, fake_graph)
-        assert "<subsystem_brief" in output
+        assert "<brief" in output
 
     def test_brief_with_corrupt_structure(self, tmp_path):
         """Corrupt structure.json in brief should return error, not crash."""
@@ -697,3 +697,153 @@ class TestFaultTolerance:
         gp = _write_graph(tmp_path, [])
         output = format_subsystem_brief(["src"], sp, gp)
         assert "error" in output.lower()
+
+
+class TestBriefOutsideRepoRejection:
+    """Paths outside the repo root must be rejected at the CLI level."""
+
+    def test_outside_repo_path_rejected(self, capsys, tmp_path):
+        from pensieve.cli import main
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "structure.json").write_text('{"repo_root":"x","files":[],"errors":[]}')
+
+        result = main(["brief", "../../etc/passwd", "--repo", str(repo)])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "outside repo root" in captured.err
+
+    def test_absolute_outside_path_rejected(self, capsys, tmp_path):
+        from pensieve.cli import main
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "structure.json").write_text('{"repo_root":"x","files":[],"errors":[]}')
+
+        result = main(["brief", "/etc/passwd", "--repo", str(repo)])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "outside repo root" in captured.err
+
+    def test_inside_repo_path_accepted(self, capsys, tmp_path):
+        from pensieve.cli import main
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "structure.json").write_text(
+            '{"repo_root":"x","files":[{"file_path":"src/a.py","language":"python",'
+            '"symbols":[],"imports":[],"exports":[],"call_edges":[],"comments":[]}],"errors":[]}'
+        )
+        (ad / "graph.json").write_text('{"nodes":[],"edges":[],"external_imports":[]}')
+
+        result = main(["brief", "src", "--repo", str(repo)])
+        assert result == 0
+
+
+# ---------------------------------------------------------------------------
+# Mixed file/directory brief input
+# ---------------------------------------------------------------------------
+
+
+class TestMixedBriefInput:
+
+    def _make_repo(self, tmp_path):
+        sp = _write_structure(tmp_path, [
+            _file("src/routers/users.py", symbols=[_sym("get_users")]),
+            _file("src/routers/posts.py", symbols=[_sym("get_posts")]),
+            _file("src/models/user.py", symbols=[_sym("User", kind="class")]),
+            _file("src/models/base.py", symbols=[_sym("Base", kind="class")]),
+            _file("src/utils/auth.py", symbols=[_sym("verify")]),
+        ])
+        gp = _write_graph(tmp_path, [
+            _edge("src/routers/users.py", "src/models/user.py"),
+            _edge("src/routers/users.py", "src/utils/auth.py"),
+            _edge("src/models/user.py", "src/models/base.py"),
+        ])
+        return sp, gp
+
+    def test_single_file_path(self, tmp_path):
+        """A single file path → brief includes only that file."""
+        sp, gp = self._make_repo(tmp_path)
+        output = format_subsystem_brief(["src/models/user.py"], sp, gp)
+        assert "User" in output
+        assert "get_users" not in output  # routers file not included
+        assert 'files="1"' in output
+
+    def test_single_directory(self, tmp_path):
+        """A single directory → existing behavior preserved."""
+        sp, gp = self._make_repo(tmp_path)
+        output = format_subsystem_brief(["src/routers"], sp, gp)
+        assert "get_users" in output
+        assert "get_posts" in output
+        assert 'files="2"' in output
+
+    def test_mixed_file_and_directory(self, tmp_path):
+        """Mixed file + directory → union is correct."""
+        sp, gp = self._make_repo(tmp_path)
+        output = format_subsystem_brief(
+            ["src/routers", "src/models/base.py"], sp, gp,
+        )
+        assert "get_users" in output   # from directory
+        assert "get_posts" in output   # from directory
+        assert "Base" in output        # from file
+        assert "User" not in output    # user.py not requested
+        assert 'files="3"' in output
+
+    def test_duplicate_paths_deduped(self, tmp_path):
+        """Duplicate paths → deduped to correct count."""
+        sp, gp = self._make_repo(tmp_path)
+        output = format_subsystem_brief(
+            ["src/routers/users.py", "src/routers"], sp, gp,
+        )
+        # users.py is both a direct file and inside the directory
+        assert 'files="2"' in output  # only 2 unique files in routers
+
+    def test_deterministic_ordering(self, tmp_path):
+        """Output should be deterministic regardless of input order."""
+        sp, gp = self._make_repo(tmp_path)
+        output1 = format_subsystem_brief(
+            ["src/models/base.py", "src/routers/users.py"], sp, gp,
+        )
+        output2 = format_subsystem_brief(
+            ["src/routers/users.py", "src/models/base.py"], sp, gp,
+        )
+        assert output1 == output2
+
+    def test_nonexistent_path_warning(self, tmp_path):
+        """Nonexistent path → warning in output, other paths still work."""
+        sp, gp = self._make_repo(tmp_path)
+        output = format_subsystem_brief(
+            ["src/routers", "nonexistent/path.py"], sp, gp,
+        )
+        assert "WARNING" in output
+        assert "nonexistent" in output
+        assert "get_users" in output  # valid path still included
+
+    def test_all_nonexistent_paths(self, tmp_path):
+        """All paths nonexistent → no files found."""
+        sp, gp = self._make_repo(tmp_path)
+        output = format_subsystem_brief(
+            ["nonexistent1", "nonexistent2.py"], sp, gp,
+        )
+        assert "No files found" in output
+
+    def test_internal_vs_external_for_file_slice(self, tmp_path):
+        """Internal edges = both endpoints in the slice."""
+        sp, gp = self._make_repo(tmp_path)
+        # Only include the two models files
+        output = format_subsystem_brief(
+            ["src/models/user.py", "src/models/base.py"], sp, gp,
+        )
+        assert "<internal_dependencies>" in output
+        # user.py → base.py should be internal
+        assert "Within subsystem" in output or "src/models/base.py" in output
+        # routers → user.py should be external in
+        assert "Depended on by" in output or "src/routers" in output

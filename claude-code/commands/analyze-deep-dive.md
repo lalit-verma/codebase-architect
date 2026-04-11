@@ -112,9 +112,11 @@ A subsystem doc is not good enough if it:
 
 ### Step 0: Read Subsystem Structural Brief
 
-Run `pensieve brief <dirs>` where `<dirs>` are this subsystem's
-directories from the analysis state. For example:
-`pensieve brief backend/open_webui/models backend/open_webui/internal`
+Run `pensieve brief <paths>` where `<paths>` are this subsystem's
+directories and/or key files from the analysis state. `pensieve brief`
+accepts file paths, directory paths, or a mix — directories expand
+recursively, files are included directly. For example:
+`pensieve brief backend/open_webui/models backend/open_webui/internal/db.py`
 
 If `pensieve` is available, read the output. It provides:
 - **`<signatures>`** — every file's public symbols with full signatures,
@@ -183,9 +185,10 @@ Wait for user confirmation before proceeding.
    sub-modules connect. Use the parent brief for this.
 
 2. **For each child sub-module, restart from Step 0 using that child's
-   dirs.** This means:
-   - Run `pensieve brief <child dirs>` for the child's specific
-     directories (not the parent's dirs)
+   paths.** This means:
+   - Run `pensieve brief <child dirs and/or files>` for the child's
+     specific paths (not the parent's). Pass directories for clean
+     sub-modules, or individual files if the child is an ad-hoc slice.
    - Read that child's brief
    - Follow Step 1 (file selection guided by the child brief)
    - Follow Step 3 (analysis using the child brief's dependencies)

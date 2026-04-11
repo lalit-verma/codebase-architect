@@ -79,17 +79,20 @@ def _build_parser() -> argparse.ArgumentParser:
     # --- brief subcommand ---
     brief_parser = subparsers.add_parser(
         "brief",
-        help="Generate a structural brief for a subsystem directory",
+        help="Generate a structural brief for files and/or directories",
         description=(
-            "Produce a detailed structural brief for specific directories. "
-            "Shows all file signatures, internal dependencies, and external "
-            "coupling. Designed for deep-dive analysis of a subsystem. "
+            "Produce a detailed structural brief for an arbitrary slice "
+            "of the repo. Accepts file paths, directory paths, or a mix. "
+            "Directories expand recursively to include all supported "
+            "source files. Files are included directly. Output includes "
+            "all signatures, internal dependencies, and external coupling "
+            "for the selected slice. "
             "Requires `pensieve scan` to have been run first."
         ),
     )
     brief_parser.add_argument(
-        "dirs", type=str, nargs="+",
-        help="One or more directory paths to include in the brief",
+        "paths", type=str, nargs="+",
+        help="File and/or directory paths to include in the brief",
     )
     brief_parser.add_argument(
         "--repo", type=str, default=".",
@@ -590,8 +593,21 @@ def _cmd_brief(args) -> int:
         )
         return 1
 
+    # Reject paths that resolve outside the repo root
+    for p in args.paths:
+        resolved = (repo_root / p).resolve()
+        try:
+            resolved.relative_to(repo_root)
+        except ValueError:
+            print(
+                f"pensieve brief: path is outside repo root: {p}\n"
+                f"  All paths must be relative to {repo_root}",
+                file=sys.stderr,
+            )
+            return 1
+
     brief = format_subsystem_brief(
-        args.dirs, structure_path, graph_path,
+        args.paths, structure_path, graph_path,
     )
 
     validation_errors = validate_subsystem_brief(brief)

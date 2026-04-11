@@ -5,7 +5,7 @@ graph.json (produced by `pensieve scan`) and computes derived views
 that the v1 slash commands consume:
 
   format_structural_profiles() — repo-level XML profile for /analyze-discover
-  format_subsystem_brief()    — per-subsystem XML brief for /analyze-deep-dive
+  format_subsystem_brief()    — brief for arbitrary file/dir slice (deep-dive, Bx routing)
   generate_route_index()      — machine-readable routing map (Bx1)
   profile_directories()       — directory profiling (internal, feeds the above)
   validate_*()                — well-formedness checks for generated profiles
@@ -682,10 +682,10 @@ def validate_subsystem_brief(content: str) -> list[str]:
     """
     errors: list[str] = []
 
-    if "<subsystem_brief" not in content:
-        errors.append("Missing <subsystem_brief> opening tag")
-    if "</subsystem_brief>" not in content:
-        errors.append("Missing </subsystem_brief> closing tag")
+    if "<brief" not in content:
+        errors.append("Missing <brief> opening tag")
+    if "</brief>" not in content:
+        errors.append("Missing </brief> closing tag")
 
     # Signatures section is always present
     if "<signatures>" not in content:
@@ -698,26 +698,30 @@ def validate_subsystem_brief(content: str) -> list[str]:
 
 
 def format_subsystem_brief(
-    subsystem_dirs: list[str],
+    paths: list[str],
     structure_path: Path,
     graph_path: Path,
 ) -> str:
-    """Format a detailed brief for one subsystem's directories.
+    """Format a detailed structural brief for an arbitrary slice of the repo.
 
-    Like format_structural_profiles but zoomed into specific directories
-    with FULL file-level signatures (not just top-N). Used by deep-dive
-    prompts to understand a subsystem without reading every file.
+    Accepts a mixed list of file paths and directory paths:
+      - directory path → include all files under it (recursively)
+      - file path → include that exact file
+      - mixed → union of both, deduped, deterministic order
+
+    Internal vs external edges are defined relative to the selected
+    file set, not directory membership.
 
     Args:
-        subsystem_dirs: List of directory paths belonging to the subsystem.
+        paths: List of file and/or directory paths to include.
         structure_path: Path to structure.json.
         graph_path: Path to graph.json.
     """
     try:
         structure = json.loads(structure_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
-        dir_list = ", ".join(subsystem_dirs)
-        return f'<subsystem_brief dirs="{dir_list}" error="Failed to read structure.json: {e}">\n</subsystem_brief>'
+        path_list = ", ".join(paths)
+        return f'<brief paths="{path_list}" error="Failed to read structure.json: {e}">\n</brief>'
     files = structure.get("files", [])
 
     graph_data: dict = {}
@@ -728,18 +732,46 @@ def format_subsystem_brief(
             pass  # proceed without graph data
     edges = graph_data.get("edges", [])
 
-    # Normalize dirs
-    dirs = {d.rstrip("/") for d in subsystem_dirs}
+    # Build index of all known file paths for lookup
+    known_files: dict[str, dict] = {f["file_path"]: f for f in files}
 
-    # Filter files in this subsystem
-    subsystem_files = []
-    for f in files:
-        parent = str(PurePosixPath(f["file_path"]).parent)
-        if parent in dirs or any(parent.startswith(d + "/") for d in dirs):
-            subsystem_files.append(f)
+    # Resolve input paths to a set of file paths
+    resolved_files: dict[str, dict] = {}  # file_path → file dict
+    warnings: list[str] = []
+    dirs: set[str] = set()  # track directories for metadata
+
+    for p in paths:
+        p_clean = p.rstrip("/")
+
+        # Check if it's a direct file match in structure.json
+        if p_clean in known_files:
+            resolved_files[p_clean] = known_files[p_clean]
+            continue
+
+        # Check if it's a directory — expand to all files under it
+        is_dir = False
+        for fp in known_files:
+            parent = str(PurePosixPath(fp).parent)
+            if parent == p_clean or parent.startswith(p_clean + "/"):
+                resolved_files[fp] = known_files[fp]
+                is_dir = True
+        if is_dir:
+            dirs.add(p_clean)
+            continue
+
+        # Not found as file or directory
+        warnings.append(f"path not found in structure.json: {p_clean}")
+
+    subsystem_files = list(resolved_files.values())
 
     if not subsystem_files:
-        return f"<subsystem_brief dirs=\"{', '.join(dirs)}\">\n  No files found.\n</subsystem_brief>\n"
+        path_list = ", ".join(paths)
+        warn_str = ""
+        sorted_paths = ", ".join(sorted(paths))
+        warn_lines = ""
+        if warnings:
+            warn_lines = "\n".join(f"  <!-- WARNING: {w} -->" for w in warnings) + "\n"
+        return f'<brief paths="{sorted_paths}" files="0">\n{warn_lines}  No files found.\n</brief>\n'
 
     # Compute per-file incoming edge count
     incoming_count: dict[str, int] = {}
@@ -752,9 +784,16 @@ def format_subsystem_brief(
     for f in files:
         file_to_dir[f["file_path"]] = str(PurePosixPath(f["file_path"]).parent)
 
+    # Deterministic ordering: sort by file path
+    subsystem_files.sort(key=lambda f: f["file_path"])
+
     lines: list[str] = []
-    dir_list = ", ".join(sorted(dirs))
-    lines.append(f'<subsystem_brief dirs="{dir_list}" files="{len(subsystem_files)}">')
+    path_list = ", ".join(sorted(paths))
+    lines.append(f'<brief paths="{path_list}" files="{len(subsystem_files)}">')
+    if warnings:
+        for w in warnings:
+            lines.append(f"  <!-- WARNING: {w} -->")
+    lines.append("")
     lines.append("")
 
     # --- Signatures: ALL files, ALL public symbols ---
@@ -903,7 +942,7 @@ def format_subsystem_brief(
         lines.append("</rationale_comments>")
         lines.append("")
 
-    lines.append("</subsystem_brief>")
+    lines.append("</brief>")
     return "\n".join(lines)
 
 

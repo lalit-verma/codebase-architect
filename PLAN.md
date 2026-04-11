@@ -665,7 +665,7 @@ foundation that multi-repo cross-edge detection needs in Phase C.
 
   **What pensieve provides:**
   - `pensieve scan` → structure.json + graph.json + structural-profiles.md
-  - `pensieve brief <dirs>` → per-subsystem structural brief
+  - `pensieve brief <paths>` → structural brief for a subsystem or arbitrary repo slice
   - `pensieve wire` → inline nano into CLAUDE.md + install hook
   - `pensieve benchmark` → measure whether docs help agents
 
@@ -700,7 +700,7 @@ foundation that multi-repo cross-edge detection needs in Phase C.
   - `analyze-discover.md` — Step 0 runs `pensieve scan`, reads
     structural-profiles.md for subsystem detection hints. Step 4
     references profiles for coupling-based subsystem boundaries.
-  - `analyze-deep-dive.md` — Step 0 runs `pensieve brief <dirs>`
+  - `analyze-deep-dive.md` — Step 0 runs `pensieve brief <paths>`
     for the target subsystem. Step 1 uses the brief's signatures
     and dependant counts for file selection. Step 3e uses the
     brief's `<internal_dependencies>` for dependency analysis
@@ -819,7 +819,7 @@ foundation that multi-repo cross-edge detection needs in Phase C.
   - `pensieve scan` now produces structural-profiles.md (7-layer XML:
     architecture, signatures, dependencies, entry points, external deps,
     rationale comments, flags)
-  - `pensieve brief <dirs>` CLI added (per-subsystem structural brief
+  - `pensieve brief <paths>` CLI added (structural brief for subsystem or arbitrary slice
     with full file-level signatures)
   - Validators for both profile formats (validate_structural_profile,
     validate_subsystem_brief)
@@ -900,7 +900,7 @@ hook ideas. We only implement the highest-leverage pieces:
   points to the most relevant artifact:
   - subsystem doc
   - `structural-profiles.md`
-  - or `pensieve brief <dirs>` for that subsystem
+  - or `pensieve brief <paths>` for that subsystem or file slice
   Keep it concise and non-spammy.
 
 - [ ] **Bx3.** Add recipe-first hints.
@@ -936,7 +936,7 @@ hook ideas. We only implement the highest-leverage pieces:
   - routed vs fallback vs anti-thrash intervention
 
 - [ ] **Bx6.** Make `brief` a first-class harness primitive.
-  `pensieve brief <dirs>` should be treated primarily as an **on-demand
+  `pensieve brief <paths>` should be treated primarily as an **on-demand
   structural primitive**, not as a new persisted doc layer. Preferred
   model:
   - stdout-first, deterministic tool call
