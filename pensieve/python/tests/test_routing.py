@@ -378,6 +378,7 @@ class TestExpandedTelemetry:
         assert "'target_subsystem'" in HOOK_SCRIPT
         assert "'target_doc'" in HOOK_SCRIPT
         assert "'session_id'" in HOOK_SCRIPT
+        assert "'brief_suggested'" in HOOK_SCRIPT
 
     def test_hook_script_has_self_contained_routing(self):
         """Hook script embeds routing logic inline (no pensieve import needed)."""

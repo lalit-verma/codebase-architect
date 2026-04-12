@@ -983,6 +983,26 @@ hook ideas. We only implement the highest-leverage pieces:
   default. If caching/materialization is later needed for performance or
   auditability, it should be an internal optimization behind the tool,
   not the main mental model.
+  
+  Delivery-quality follow-up:
+  - brief suggestions must remain a **small nudge**, not a mini-manual
+  - if the rendered `pensieve brief <paths>` hint becomes too long, cap
+    the visible paths (for example 2-3 paths or a character limit),
+    prefer the most representative paths, and append `...`
+  - keep the subsystem/doc pointer primary and the brief command
+    secondary
+  - treat hint bloat as a harness UX issue to tune with telemetry, not a
+    reason to abandon `brief` as an on-demand primitive
+  
+  Bx6 risk handling:
+  
+  | Area | Current stance | Why | Next action |
+  |---|---|---|---|
+  | Hint bloat | Keep for now | Bx6a only suggests `brief` on `directory_prefix`, so the surface area is still narrow | Monitor real hint lengths; if they become noisy, cap visible paths or command length |
+  | Over-suggestion | Monitor closely | The bigger medium-term risk is not command length but showing `brief` too often, which can turn the hint into background noise | Use telemetry to inspect how often `brief_suggested=true`; do not broaden to `common_task` until directory-prefix behavior feels clearly high-signal |
+  | Bx6b deferral | Keep deferred | `common_task` matching is fuzzier than `directory_prefix`, so brief suggestions there have higher false-positive risk | Revisit only after Bx6a usage looks good in practice |
+  | Co-located duplication in routing | Accept for now | `route.py` is the canonical routing file, but both library logic and hook template still need to be kept in sync | For every future routing change, review both code paths explicitly; harden further only if this becomes a real maintenance tax |
+  | Telemetry gap | Monitor and plan | We know when `brief` was suggested, but not yet whether it was actually used or whether it reduced blind search | Extend telemetry later to correlate suggestions with subsequent `pensieve brief` usage and search-thrash reduction before expanding Bx6 further |
 
 - [ ] **Bx7.** Add freshness and validity checks for routed artifacts.
   Routing should not rely on stale structural summaries. Add stage-

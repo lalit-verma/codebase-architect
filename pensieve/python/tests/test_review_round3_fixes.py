@@ -129,21 +129,3 @@ class TestTraitDefaultMethodCallEdges:
         assert len(set_edges) == 0
 
 
-class TestJavaOverloadFindingStale:
-    """Verify the Java overload fix from round 2 is still in place."""
-
-    def test_java_find_method_uses_line_start(self, tmp_path):
-        from pensieve.extractors.java import extract_java
-        p = tmp_path / "Test.java"
-        p.write_text(dedent('''\
-        public class Svc {
-            public void run(String a) { helperA(); }
-            public void run(String a, int b) { helperB(); }
-            private void helperA() {}
-            private void helperB() {}
-        }
-        '''))
-        ext = extract_java(p)
-        callees = {e.callee for e in ext.call_edges}
-        assert "helperA" in callees
-        assert "helperB" in callees

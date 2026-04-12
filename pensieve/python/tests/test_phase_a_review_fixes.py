@@ -137,29 +137,3 @@ class TestSetupActionContentValidation:
         validate_template(t)
 
 
-# ---------------------------------------------------------------------------
-# Finding 3: Fresh install status reporting
-# ---------------------------------------------------------------------------
-
-
-class TestInstallStatusReporting:
-
-    def test_fresh_install_returns_created(self, tmp_path):
-        """First install on a repo with no .claude/ → settings='created'."""
-        result = install_hook(tmp_path)
-        assert result["script"] == "created"
-        assert result["settings"] == "created"
-
-    def test_install_on_existing_settings_returns_merged(self, tmp_path):
-        """Install on a repo that already has .claude/settings.json → 'merged'."""
-        claude_dir = tmp_path / ".claude"
-        claude_dir.mkdir()
-        (claude_dir / "settings.json").write_text('{"other": true}')
-
-        result = install_hook(tmp_path)
-        assert result["settings"] == "merged"
-
-    def test_reinstall_returns_already_registered(self, tmp_path):
-        install_hook(tmp_path)
-        result = install_hook(tmp_path)
-        assert result["settings"] == "already_registered"

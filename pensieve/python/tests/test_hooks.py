@@ -665,3 +665,229 @@ class TestHookTelemetry:
             assert event["route_match_type"] == "directory_prefix"
             assert event["artifact_kind"] == "subsystem_doc"
             assert event["target_subsystem"] == "api-routers"
+
+
+# ---------------------------------------------------------------------------
+# Bx6a: Brief suggestion in hook output
+# ---------------------------------------------------------------------------
+
+
+class TestBriefSuggestionHook:
+
+    def test_hook_output_contains_brief_suggestion(self, tmp_path):
+        """E2E: v2 route with brief_paths → hint includes pensieve brief command."""
+        import subprocess
+        from pensieve.hooks import install_hook
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Nano\n")
+
+        import json as json_mod
+        (ad / "route-index.json").write_text(json_mod.dumps({
+            "version": 2,
+            "subsystem_routes": [
+                {
+                    "subsystem": "api-routers",
+                    "doc_path": "agent-docs/subsystems/api-routers.md",
+                    "role": "HTTP request handling",
+                    "owns_paths": ["backend/routers"],
+                    "common_tasks": [],
+                    "brief_paths": ["backend/routers"],
+                },
+            ],
+            "pattern_routes": [],
+            "fallbacks": {},
+            "fallback_hint": "Fallback.",
+        }))
+
+        install_hook(repo)
+
+        hook_path = repo / ".claude" / "hooks" / "pensieve-pretooluse.sh"
+        input_json = json_mod.dumps({
+            "tool_name": "Glob",
+            "tool_input": {"pattern": "backend/routers/**/*.py"},
+            "session_id": "test-bx6a",
+        })
+
+        result = subprocess.run(
+            ["bash", str(hook_path)],
+            input=input_json,
+            capture_output=True,
+            text=True,
+            cwd=str(repo),
+            timeout=10,
+        )
+        assert result.returncode == 0
+
+        output = result.stdout.strip()
+        assert output
+        data = json_mod.loads(output)
+        ctx = data["hookSpecificOutput"]["additionalContext"]
+        assert "pensieve brief backend/routers" in ctx
+        assert "api-routers" in ctx
+
+    def test_hook_output_no_brief_when_empty_brief_paths(self, tmp_path):
+        """E2E: v2 route with empty brief_paths → no brief suggestion."""
+        import subprocess
+        from pensieve.hooks import install_hook
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Nano\n")
+
+        import json as json_mod
+        (ad / "route-index.json").write_text(json_mod.dumps({
+            "version": 2,
+            "subsystem_routes": [
+                {
+                    "subsystem": "config",
+                    "doc_path": "agent-docs/subsystems/config.md",
+                    "role": "Configuration",
+                    "owns_paths": ["src/config"],
+                    "common_tasks": [],
+                    "brief_paths": [],
+                },
+            ],
+            "pattern_routes": [],
+            "fallbacks": {},
+            "fallback_hint": "Fallback.",
+        }))
+
+        install_hook(repo)
+
+        hook_path = repo / ".claude" / "hooks" / "pensieve-pretooluse.sh"
+        input_json = json_mod.dumps({
+            "tool_name": "Grep",
+            "tool_input": {"pattern": "src/config/settings.py"},
+            "session_id": "test-bx6a-no-brief",
+        })
+
+        result = subprocess.run(
+            ["bash", str(hook_path)],
+            input=input_json,
+            capture_output=True,
+            text=True,
+            cwd=str(repo),
+            timeout=10,
+        )
+        assert result.returncode == 0
+
+        output = result.stdout.strip()
+        assert output
+        data = json_mod.loads(output)
+        ctx = data["hookSpecificOutput"]["additionalContext"]
+        assert "pensieve brief" not in ctx
+        assert "config" in ctx.lower()
+
+    def test_telemetry_marks_brief_suggested(self, tmp_path):
+        """E2E: telemetry includes brief_suggested field."""
+        import subprocess
+        from pensieve.hooks import install_hook
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Nano\n")
+
+        import json as json_mod
+        (ad / "route-index.json").write_text(json_mod.dumps({
+            "version": 2,
+            "subsystem_routes": [
+                {
+                    "subsystem": "api-routers",
+                    "doc_path": "agent-docs/subsystems/api-routers.md",
+                    "role": "HTTP request handling",
+                    "owns_paths": ["backend/routers"],
+                    "common_tasks": [],
+                    "brief_paths": ["backend/routers"],
+                },
+            ],
+            "pattern_routes": [],
+            "fallbacks": {},
+            "fallback_hint": "Fallback.",
+        }))
+
+        install_hook(repo)
+
+        hook_path = repo / ".claude" / "hooks" / "pensieve-pretooluse.sh"
+        input_json = json_mod.dumps({
+            "tool_name": "Glob",
+            "tool_input": {"pattern": "backend/routers/**/*.py"},
+            "session_id": "test-bx6a-telemetry",
+        })
+
+        result = subprocess.run(
+            ["bash", str(hook_path)],
+            input=input_json,
+            capture_output=True,
+            text=True,
+            cwd=str(repo),
+            timeout=10,
+        )
+        assert result.returncode == 0
+
+        telemetry_path = ad / "hook-telemetry.jsonl"
+        assert telemetry_path.exists()
+        lines = telemetry_path.read_text().strip().split("\n")
+        event = json_mod.loads(lines[-1])
+        assert event["brief_suggested"] is True
+
+    def test_telemetry_brief_suggested_false_for_no_brief(self, tmp_path):
+        """E2E: telemetry marks brief_suggested=false when no brief_paths."""
+        import subprocess
+        from pensieve.hooks import install_hook
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Nano\n")
+
+        import json as json_mod
+        (ad / "route-index.json").write_text(json_mod.dumps({
+            "version": 2,
+            "subsystem_routes": [
+                {
+                    "subsystem": "config",
+                    "doc_path": "config.md",
+                    "role": "Config",
+                    "owns_paths": ["src/config"],
+                    "common_tasks": [],
+                    "brief_paths": [],
+                },
+            ],
+            "pattern_routes": [],
+            "fallbacks": {},
+            "fallback_hint": "Fallback.",
+        }))
+
+        install_hook(repo)
+
+        hook_path = repo / ".claude" / "hooks" / "pensieve-pretooluse.sh"
+        input_json = json_mod.dumps({
+            "tool_name": "Glob",
+            "tool_input": {"pattern": "src/config/main.py"},
+            "session_id": "test-bx6a-no-brief-telem",
+        })
+
+        result = subprocess.run(
+            ["bash", str(hook_path)],
+            input=input_json,
+            capture_output=True,
+            text=True,
+            cwd=str(repo),
+            timeout=10,
+        )
+        assert result.returncode == 0
+
+        telemetry_path = ad / "hook-telemetry.jsonl"
+        assert telemetry_path.exists()
+        lines = telemetry_path.read_text().strip().split("\n")
+        event = json_mod.loads(lines[-1])
+        assert event["brief_suggested"] is False

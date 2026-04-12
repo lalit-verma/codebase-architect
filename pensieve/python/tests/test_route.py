@@ -196,19 +196,58 @@ class TestPatternRouteMatching:
         r = route_query("model_triplet", idx)
         assert r.match_type == "pattern_route"
 
-    def test_short_basename_not_matched(self, tmp_path):
-        """Basenames < 4 chars should not trigger pattern match."""
+    def test_short_fragment_no_greedy_match(self, tmp_path):
+        """Short basename fragments like 'config' (<8 chars) must not trigger pattern match."""
         data = dict(_SAMPLE_INDEX)
         data["pattern_routes"] = [{
-            "pattern_name": "tiny",
-            "template_file": "src/db.py",  # "db" is only 2 chars
+            "pattern_name": "persistent-config-mirror",
+            "doc_anchor": "patterns.md#persistent-config-mirror",
+            "template_file": "backend/config.py",  # "config" is 6 chars < 8
             "registration": "implicit",
         }]
         idx = _write_index(tmp_path, data)
-        r = route_query("db", idx)
-        # Should NOT match on "db" (too short) but may match on "tiny"
-        if r.match_type == "pattern_route":
-            assert "tiny" in r.hint  # matched on pattern name, not basename
+        # "config" in query should NOT match the short basename fragment
+        r = route_query("config settings", idx)
+        assert r.match_type != "pattern_route" or "persistent-config-mirror" in r.hint
+        # But the full pattern name DOES match
+        r2 = route_query("persistent-config-mirror", idx)
+        assert r2.match_type == "pattern_route"
+
+    def test_long_fragment_still_matches(self, tmp_path):
+        """Basename fragments >= 8 chars should still trigger pattern match."""
+        data = dict(_SAMPLE_INDEX)
+        data["pattern_routes"] = [{
+            "pattern_name": "stream-wrapper",
+            "doc_anchor": "patterns.md#stream-wrapper",
+            "template_file": "src/utils/middleware.py",  # "middleware" is 10 chars >= 8
+            "registration": "implicit",
+        }]
+        idx = _write_index(tmp_path, data)
+        r = route_query("middleware handler", idx)
+        assert r.match_type == "pattern_route"
+        assert "stream-wrapper" in r.hint
+
+    def test_vague_query_no_pattern_hijack(self, tmp_path):
+        """Vague conceptual query should not be hijacked by narrow pattern."""
+        data = dict(_SAMPLE_INDEX)
+        data["pattern_routes"] = [{
+            "pattern_name": "jwt-auth-flow",
+            "doc_anchor": "patterns.md#jwt-auth-flow",
+            "template_file": "backend/utils/auth.py",  # "auth" is 4 chars < 8
+            "registration": "implicit",
+        }]
+        data["subsystem_routes"] = [{
+            "subsystem": "auth-system",
+            "doc_path": "auth.md",
+            "owns_paths": [],
+            "common_tasks": ["Add authentication provider"],
+        }]
+        idx = _write_index(tmp_path, data)
+        # "authentication" contains "auth" but "auth" is < 8 chars fragment
+        r = route_query("authentication provider", idx)
+        # Should fall through pattern to common_task, not match on "auth" fragment
+        assert r.match_type == "common_task"
+        assert r.subsystem == "auth-system"
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +280,71 @@ class TestCommonTaskMatching:
         idx = _write_index(tmp_path, _SAMPLE_INDEX)
         r = route_query("a b c", idx)
         assert r.match_type == "fallback"
+
+    def test_best_match_wins_over_first(self, tmp_path):
+        """Higher keyword overlap should win over earlier iteration order."""
+        data = dict(_SAMPLE_INDEX)
+        data["subsystem_routes"] = [
+            {
+                "subsystem": "aaa-weak",  # alphabetically first
+                "doc_path": "weak.md",
+                "owns_paths": [],
+                "common_tasks": ["Handle sqs queue"],  # 1-word overlap on "sqs"
+            },
+            {
+                "subsystem": "zzz-strong",  # alphabetically last
+                "doc_path": "strong.md",
+                "owns_paths": [],
+                "common_tasks": ["Process digest pipeline stage"],  # 2-word overlap
+            },
+        ]
+        idx = _write_index(tmp_path, data)
+        r = route_query("digest pipeline sqs", idx)
+        assert r.match_type == "common_task"
+        assert r.subsystem == "zzz-strong"  # 2-word overlap beats 1-word
+
+    def test_tie_break_alphabetical(self, tmp_path):
+        """Equal overlap count → alphabetically earlier subsystem wins."""
+        data = dict(_SAMPLE_INDEX)
+        data["subsystem_routes"] = [
+            {
+                "subsystem": "beta-subsystem",
+                "doc_path": "beta.md",
+                "owns_paths": [],
+                "common_tasks": ["Handle webhook event"],
+            },
+            {
+                "subsystem": "alpha-subsystem",
+                "doc_path": "alpha.md",
+                "owns_paths": [],
+                "common_tasks": ["Process webhook payload"],
+            },
+        ]
+        idx = _write_index(tmp_path, data)
+        r = route_query("webhook", idx)
+        assert r.match_type == "common_task"
+        assert r.subsystem == "alpha-subsystem"  # alphabetically first
+
+    def test_best_match_deterministic(self, tmp_path):
+        """Same query always produces same result."""
+        data = dict(_SAMPLE_INDEX)
+        data["subsystem_routes"] = [
+            {
+                "subsystem": "infra",
+                "doc_path": "infra.md",
+                "owns_paths": [],
+                "common_tasks": ["Deploy service"],
+            },
+            {
+                "subsystem": "pipeline",
+                "doc_path": "pipeline.md",
+                "owns_paths": [],
+                "common_tasks": ["Deploy pipeline service worker"],
+            },
+        ]
+        idx = _write_index(tmp_path, data)
+        results = [route_query("deploy service worker", idx) for _ in range(5)]
+        assert all(r.subsystem == results[0].subsystem for r in results)
 
 
 # ---------------------------------------------------------------------------
@@ -369,3 +473,124 @@ class TestDeterministic:
         assert r1.hint == r2.hint
         assert r1.match_type == r2.match_type
         assert r1.doc == r2.doc
+
+
+# ---------------------------------------------------------------------------
+# Bx6a: Brief suggestion for directory_prefix matches
+# ---------------------------------------------------------------------------
+
+
+class TestBriefSuggestion:
+
+    def test_directory_prefix_with_brief_paths(self, tmp_path):
+        """directory_prefix match with brief_paths → hint includes brief command."""
+        idx = _write_index(tmp_path, _SAMPLE_INDEX)
+        r = route_query("backend/open_webui/routers/chats.py", idx)
+        assert r.match_type == "directory_prefix"
+        assert r.show_brief_hint is True
+        assert r.brief_paths == ["backend/open_webui/routers"]
+        assert "pensieve brief backend/open_webui/routers" in r.hint
+
+    def test_directory_prefix_without_brief_paths(self, tmp_path):
+        """directory_prefix match without brief_paths → doc-only hint."""
+        data = dict(_SAMPLE_INDEX)
+        data["subsystem_routes"] = [{
+            "subsystem": "core",
+            "doc_path": "core.md",
+            "role": "Core logic",
+            "owns_paths": ["src/core"],
+            # no brief_paths
+        }]
+        idx = _write_index(tmp_path, data)
+        r = route_query("src/core/main.py", idx)
+        assert r.match_type == "directory_prefix"
+        assert r.show_brief_hint is False
+        assert r.brief_paths == []
+        assert "pensieve brief" not in r.hint
+
+    def test_directory_prefix_empty_brief_paths(self, tmp_path):
+        """directory_prefix match with empty brief_paths → doc-only hint."""
+        idx = _write_index(tmp_path, _SAMPLE_INDEX)
+        # configuration subsystem has brief_paths: []
+        r = route_query("backend/open_webui/config.py", idx)
+        assert r.match_type == "directory_prefix"
+        assert r.show_brief_hint is False
+        assert r.brief_paths == []
+        assert "pensieve brief" not in r.hint
+
+    def test_directory_prefix_multiple_brief_paths(self, tmp_path):
+        """brief_paths with multiple entries → all paths in command."""
+        idx = _write_index(tmp_path, _SAMPLE_INDEX)
+        r = route_query("backend/open_webui/models/users.py", idx)
+        assert r.match_type == "directory_prefix"
+        assert r.show_brief_hint is True
+        assert len(r.brief_paths) == 2
+        assert "pensieve brief backend/open_webui/models backend/open_webui/internal" in r.hint
+
+    def test_pattern_route_no_brief(self, tmp_path):
+        """Pattern matches never suggest brief."""
+        idx = _write_index(tmp_path, _SAMPLE_INDEX)
+        r = route_query("router-canonical-crud", idx)
+        assert r.match_type == "pattern_route"
+        assert r.show_brief_hint is False
+        assert r.brief_paths == []
+        assert "pensieve brief" not in r.hint
+
+    def test_common_task_no_brief(self, tmp_path):
+        """Bx6a: common_task matches do not suggest brief yet."""
+        idx = _write_index(tmp_path, _SAMPLE_INDEX)
+        r = route_query("endpoint api", idx)
+        assert r.match_type == "common_task"
+        assert r.show_brief_hint is False
+        assert r.brief_paths == []
+        assert "pensieve brief" not in r.hint
+
+    def test_fallback_no_brief(self, tmp_path):
+        """Fallback never suggests brief."""
+        idx = _write_index(tmp_path, _SAMPLE_INDEX)
+        r = route_query("zzzzz", idx)
+        assert r.match_type == "fallback"
+        assert r.show_brief_hint is False
+        assert r.brief_paths == []
+
+    def test_v1_index_no_brief(self, tmp_path):
+        """v1 index has no brief concept."""
+        v1 = {
+            "version": 1,
+            "routes": [
+                {
+                    "match_type": "directory_prefix",
+                    "pattern": "src/routers",
+                    "subsystem": "Routers",
+                    "doc_path": "agent-docs/subsystems/routers.md",
+                    "hint": "HTTP handlers",
+                },
+            ],
+        }
+        idx = _write_index(tmp_path, v1)
+        r = route_query("src/routers/api.py", idx)
+        assert r.show_brief_hint is False
+        assert r.brief_paths == []
+
+    def test_hint_is_single_line(self, tmp_path):
+        """Brief suggestion must not break the one-line hint policy."""
+        idx = _write_index(tmp_path, _SAMPLE_INDEX)
+        r = route_query("backend/open_webui/routers/chats.py", idx)
+        assert "\n" not in r.hint
+
+    def test_brief_paths_shell_quoted(self, tmp_path):
+        """Paths with spaces or shell chars are quoted in the brief command."""
+        data = dict(_SAMPLE_INDEX)
+        data["subsystem_routes"] = [{
+            "subsystem": "frontend",
+            "doc_path": "frontend.md",
+            "role": "UI",
+            "owns_paths": ["src/ui"],
+            "brief_paths": ["src/ui components", "src/$utils"],
+        }]
+        idx = _write_index(tmp_path, data)
+        r = route_query("src/ui/app.tsx", idx)
+        assert r.show_brief_hint is True
+        # shlex.quote wraps paths that need it
+        assert "'src/ui components'" in r.hint
+        assert "'src/$utils'" in r.hint
