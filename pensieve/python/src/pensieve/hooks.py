@@ -47,7 +47,11 @@ HINT="Codebase context in CLAUDE.md (nano-digest). For deeper context: Explore s
 HINT_TYPE="fallback"
 TARGET_DOC="agent-docs/agent-context.md"
 
-# Try path-aware routing from route-index.json
+# Try path-aware routing from route-index.json (v2 schema)
+ARTIFACT_KIND="fallback"
+TARGET_SUBSYSTEM=""
+ROUTE_MATCH_TYPE="fallback"
+
 if [ -f agent-docs/route-index.json ] && command -v python3 &>/dev/null; then
   ROUTE_RESULT=$(python3 -c "
 import json, sys
@@ -55,18 +59,47 @@ try:
     with open('agent-docs/route-index.json') as f:
         idx = json.load(f)
     query = sys.argv[1] if len(sys.argv) > 1 else ''
-    for route in idx.get('routes', []):
-        if route['match_type'] == 'directory_prefix' and query.startswith(route['pattern']):
-            print(json.dumps({'hint': route['hint'], 'doc': route['doc_path'], 'subsystem': route['subsystem']}))
-            sys.exit(0)
-    print(json.dumps({'hint': idx.get('fallback_hint', ''), 'doc': 'agent-docs/agent-context.md', 'subsystem': ''}))
+    v = idx.get('version', 1)
+    # v2 schema: subsystem_routes with owns_paths
+    if v >= 2:
+        for route in idx.get('subsystem_routes', []):
+            for p in route.get('owns_paths', []):
+                p = p.rstrip('/')
+                if query.startswith(p):
+                    hint = route.get('role', route['subsystem'])
+                    print(json.dumps({
+                        'hint': hint,
+                        'doc': route.get('doc_path', ''),
+                        'subsystem': route['subsystem'],
+                        'match_type': 'directory_prefix',
+                        'artifact_kind': 'subsystem_doc',
+                    }))
+                    sys.exit(0)
+    # v1 fallback: routes[] with pattern
+    else:
+        for route in idx.get('routes', []):
+            if route.get('match_type') == 'directory_prefix' and query.startswith(route.get('pattern', '')):
+                print(json.dumps({
+                    'hint': route.get('hint', ''),
+                    'doc': route.get('doc_path', ''),
+                    'subsystem': route.get('subsystem', ''),
+                    'match_type': 'directory_prefix',
+                    'artifact_kind': 'subsystem_doc',
+                }))
+                sys.exit(0)
+    # No match — fallback
+    fb = idx.get('fallback_hint', '') if v >= 2 else idx.get('fallback_hint', '')
+    print(json.dumps({'hint': fb, 'doc': 'agent-docs/agent-context.md', 'subsystem': '', 'match_type': 'fallback', 'artifact_kind': 'fallback'}))
 except Exception:
-    print(json.dumps({'hint': '', 'doc': '', 'subsystem': ''}))
+    print(json.dumps({'hint': '', 'doc': '', 'subsystem': '', 'match_type': 'fallback', 'artifact_kind': 'fallback'}))
 " "$TOOL_INPUT" 2>/dev/null)
 
   if [ -n "$ROUTE_RESULT" ]; then
     ROUTED_HINT=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('hint',''))" 2>/dev/null || echo "")
     ROUTED_DOC=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('doc',''))" 2>/dev/null || echo "")
+    TARGET_SUBSYSTEM=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('subsystem',''))" 2>/dev/null || echo "")
+    ROUTE_MATCH_TYPE=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('match_type','fallback'))" 2>/dev/null || echo "fallback")
+    ARTIFACT_KIND=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('artifact_kind','fallback'))" 2>/dev/null || echo "fallback")
     if [ -n "$ROUTED_HINT" ]; then
       HINT="$ROUTED_HINT. See $ROUTED_DOC for details."
       HINT_TYPE="routed"
@@ -75,7 +108,7 @@ except Exception:
   fi
 fi
 
-# Log telemetry event (append-only JSONL)
+# Log telemetry event (append-only JSONL, expanded schema Bx5a)
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown")
 python3 -c "
 import json, sys
@@ -85,12 +118,15 @@ event = {
     'tool_name': sys.argv[2],
     'query': sys.argv[3][:200],
     'hint_type': sys.argv[4],
-    'target_doc': sys.argv[5],
-    'session_id': sys.argv[6],
+    'route_match_type': sys.argv[5],
+    'artifact_kind': sys.argv[6],
+    'target_doc': sys.argv[7],
+    'target_subsystem': sys.argv[8],
+    'session_id': sys.argv[9],
 }
 with open('agent-docs/hook-telemetry.jsonl', 'a') as f:
     f.write(json.dumps(event) + '\\n')
-" "$TIMESTAMP" "$TOOL_NAME" "$TOOL_INPUT" "$HINT_TYPE" "$TARGET_DOC" "$SESSION_ID" 2>/dev/null
+" "$TIMESTAMP" "$TOOL_NAME" "$TOOL_INPUT" "$HINT_TYPE" "$ROUTE_MATCH_TYPE" "$ARTIFACT_KIND" "$TARGET_DOC" "$TARGET_SUBSYSTEM" "$SESSION_ID" 2>/dev/null
 
 # Output the hook response
 cat <<HOOKEOF

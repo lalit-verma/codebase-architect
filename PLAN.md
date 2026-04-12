@@ -906,24 +906,18 @@ hook ideas. We only implement the highest-leverage pieces:
 ### Milestones
 
 - [x] **Bx1.** Build a route index from generated context.
-  *(2026-04-10: `generate_route_index()` in context.py. Current schema:
-  version, routes[] with match_type/pattern/subsystem/doc_path/hint,
-  fallback_hint. Initially generated from subsystem map. This is the
-  seed substrate for richer structural routing.)*
+  *(Superseded by Bx1a.)*
 
-- [ ] **Bx1a.** Upgrade route-index to be structurally aware.
-  Route index should be derived from:
-  - subsystem map from `/analyze-discover`
-  - `structural-profiles.md`
-  - subsystem docs
-  - `patterns.md`
-  - known key files / common tasks / touched-together hints
-  It should encode:
-  - path prefix → subsystem doc
-  - path prefix → `brief` target dirs
-  - task shape → preferred artifact
-  - subsystem → key files
-  - subsystem → common tasks
+- [x] **Bx1a.** Route-index v2 — structurally aware, derived from
+  v1 artifacts. *(2026-04-12: `pensieve.routing` module. Parses
+  routing-map.md (YAML) + .analysis-state.md (inline recursion).
+  Schema v2: subsystem_routes with owns_paths, key_files, key_tests,
+  common_tasks, brief_paths, recursive_children. pattern_routes with
+  template_file, registration, doc_anchor. Fallbacks. Integrated into
+  `pensieve wire` — refreshes route-index.json on every wire.
+  Handles YAML colon-in-value misparse for recursion format.
+  Old generate_route_index() in context.py removed. 27 tests.
+  878/878 total pass.)*
 
 - [ ] **Bx2.** Add path-aware prehook routing.
   When the agent is about to use broad search (`Glob`, `Grep`) and the

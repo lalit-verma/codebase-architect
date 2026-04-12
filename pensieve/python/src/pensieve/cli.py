@@ -674,6 +674,32 @@ def _cmd_wire(args) -> int:
     print(f"Nano:     {nano_result['nano']} -> CLAUDE.md {nano_result['claudemd']}", flush=True)
     print(f"Hook:     script={hook_result['script']}, settings={hook_result['settings']}", flush=True)
 
+    # Refresh route-index.json from routing-map.md if available
+    from pensieve.routing import build_route_index, save_route_index
+    routing_map_path = repo_root / "agent-docs" / "routing-map.md"
+    analysis_state_path = repo_root / "agent-docs" / ".analysis-state.md"
+
+    if routing_map_path.exists():
+        index = build_route_index(
+            routing_map_path,
+            analysis_state_path if analysis_state_path.exists() else None,
+        )
+        route_path = save_route_index(
+            index, repo_root / "agent-docs" / "route-index.json",
+        )
+        n_sub = len(index.subsystem_routes)
+        n_pat = len(index.pattern_routes)
+        print(f"Route:    {n_sub} subsystems, {n_pat} patterns -> {route_path}", flush=True)
+        if index.errors:
+            for err in index.errors:
+                print(f"  WARNING: {err}", file=sys.stderr)
+    else:
+        print(
+            "Route:    routing-map.md not found — route-index.json not refreshed.\n"
+            "  Run /analyze-synthesize to generate routing-map.md.",
+            flush=True,
+        )
+
     return 0
 
 

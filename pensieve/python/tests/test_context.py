@@ -22,12 +22,9 @@ from unittest import mock
 from pensieve.context import (
     DirectoryProfile,
     RepoProfile,
-    SubsystemMap,
-    SubsystemProposal,
     profile_directories,
     format_structural_profiles,
     format_subsystem_brief,
-    generate_route_index,
     validate_structural_profile,
     validate_subsystem_brief,
 )
@@ -380,100 +377,6 @@ def _make_profile():
         ],
     )
 
-
-class TestSubsystemDataclasses:
-
-    def test_proposal_fields(self):
-        p = SubsystemProposal(
-            name="Auth",
-            directories=["auth/", "middleware/auth/"],
-            role="Authentication and authorization",
-            rationale="Tightly coupled",
-        )
-        assert p.name == "Auth"
-        assert len(p.directories) == 2
-
-    def test_map_error_default(self):
-        m = SubsystemMap(subsystems=[], excluded=[])
-        assert m.error is None
-
-
-# ---------------------------------------------------------------------------
-# B14c: Subsystem brief + file selection
-# ---------------------------------------------------------------------------
-
-
-class TestRouteIndex:
-
-    def test_generates_route_index(self, tmp_path):
-        smap = SubsystemMap(
-            subsystems=[
-                SubsystemProposal(
-                    name="API Routers",
-                    directories=["src/routers"],
-                    role="HTTP handlers",
-                    rationale="test",
-                ),
-                SubsystemProposal(
-                    name="Data Models",
-                    directories=["src/models", "src/db"],
-                    role="ORM layer",
-                    rationale="test",
-                ),
-            ],
-            excluded=[],
-        )
-        path = generate_route_index(smap, tmp_path)
-
-        assert path.exists()
-        assert path.name == "route-index.json"
-
-        data = json.loads(path.read_text())
-        assert data["version"] == 1
-        assert len(data["routes"]) == 3  # 1 for routers + 2 for models
-        assert "fallback_hint" in data
-
-    def test_route_entries_have_required_fields(self, tmp_path):
-        smap = SubsystemMap(
-            subsystems=[
-                SubsystemProposal(
-                    name="Core", directories=["src"],
-                    role="core logic", rationale="test",
-                ),
-            ],
-            excluded=[],
-        )
-        generate_route_index(smap, tmp_path)
-        data = json.loads((tmp_path / "route-index.json").read_text())
-
-        route = data["routes"][0]
-        assert route["match_type"] == "directory_prefix"
-        assert route["pattern"] == "src"
-        assert route["subsystem"] == "Core"
-        assert route["doc_path"].startswith("agent-docs/subsystems/")
-        assert route["hint"] != ""
-
-    def test_directory_trailing_slash_stripped(self, tmp_path):
-        smap = SubsystemMap(
-            subsystems=[
-                SubsystemProposal(
-                    name="Utils", directories=["src/utils/"],
-                    role="shared", rationale="test",
-                ),
-            ],
-            excluded=[],
-        )
-        generate_route_index(smap, tmp_path)
-        data = json.loads((tmp_path / "route-index.json").read_text())
-
-        assert data["routes"][0]["pattern"] == "src/utils"
-
-    def test_empty_subsystem_map(self, tmp_path):
-        smap = SubsystemMap(subsystems=[], excluded=[])
-        path = generate_route_index(smap, tmp_path)
-        data = json.loads(path.read_text())
-        assert data["routes"] == []
-        assert "fallback_hint" in data
 
 
 # ---------------------------------------------------------------------------
