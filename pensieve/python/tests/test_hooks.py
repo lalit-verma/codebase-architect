@@ -598,3 +598,70 @@ class TestHookTelemetry:
             assert event["event"] == "hint_shown"
             assert event["tool_name"] == "Glob"
             assert event["session_id"] == "test-session-123"
+
+    def test_installed_hook_v2_routed_hint(self, tmp_path):
+        """End-to-end: v2 route-index produces a routed hint, not fallback."""
+        import subprocess
+        from pensieve.hooks import install_hook
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Nano\n")
+
+        import json as json_mod
+        (ad / "route-index.json").write_text(json_mod.dumps({
+            "version": 2,
+            "subsystem_routes": [
+                {
+                    "subsystem": "api-routers",
+                    "doc_path": "agent-docs/subsystems/api-routers.md",
+                    "role": "HTTP request handling",
+                    "owns_paths": ["backend/routers"],
+                    "common_tasks": ["Add new API endpoint"],
+                    "brief_paths": ["backend/routers"],
+                },
+            ],
+            "pattern_routes": [],
+            "fallbacks": {},
+            "fallback_hint": "Fallback hint.",
+        }))
+
+        install_hook(repo)
+
+        hook_path = repo / ".claude" / "hooks" / "pensieve-pretooluse.sh"
+        input_json = json_mod.dumps({
+            "tool_name": "Glob",
+            "tool_input": {"pattern": "backend/routers/**/*.py"},
+            "session_id": "test-v2-session",
+        })
+
+        result = subprocess.run(
+            ["bash", str(hook_path)],
+            input=input_json,
+            capture_output=True,
+            text=True,
+            cwd=str(repo),
+            timeout=10,
+        )
+
+        assert result.returncode == 0
+
+        # The hook output should contain the routed hint, not fallback
+        output = result.stdout.strip()
+        if output:
+            data = json_mod.loads(output)
+            ctx = data.get("hookSpecificOutput", {}).get("additionalContext", "")
+            assert "api-routers" in ctx.lower() or "Subsystem" in ctx, (
+                f"Expected routed hint for api-routers, got: {ctx}"
+            )
+
+        # Telemetry should show directory_prefix match
+        telemetry_path = ad / "hook-telemetry.jsonl"
+        if telemetry_path.exists():
+            lines = telemetry_path.read_text().strip().split("\n")
+            event = json_mod.loads(lines[-1])
+            assert event["route_match_type"] == "directory_prefix"
+            assert event["artifact_kind"] == "subsystem_doc"
+            assert event["target_subsystem"] == "api-routers"

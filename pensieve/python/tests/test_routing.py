@@ -379,7 +379,48 @@ class TestExpandedTelemetry:
         assert "'target_doc'" in HOOK_SCRIPT
         assert "'session_id'" in HOOK_SCRIPT
 
-    def test_hook_script_supports_v2_schema(self):
+    def test_hook_script_has_self_contained_routing(self):
+        """Hook script embeds routing logic inline (no pensieve import needed)."""
         from pensieve.hooks import HOOK_SCRIPT
         assert "subsystem_routes" in HOOK_SCRIPT
         assert "owns_paths" in HOOK_SCRIPT
+        assert "pattern_routes" in HOOK_SCRIPT
+        assert "directory_prefix" in HOOK_SCRIPT
+        # Must NOT import pensieve (system python may not have it)
+        assert "from pensieve" not in HOOK_SCRIPT
+        assert "import pensieve" not in HOOK_SCRIPT
+
+    def test_hook_script_derived_from_canonical_source(self):
+        """HOOK_SCRIPT routing section is generated from route.py, not hand-maintained."""
+        from pensieve.hooks import HOOK_SCRIPT
+        from pensieve.route import render_hook_routing_script
+        rendered = render_hook_routing_script()
+        # The rendered routing script must appear verbatim in HOOK_SCRIPT
+        assert rendered in HOOK_SCRIPT
+
+    def test_render_contains_canonical_stop_words(self):
+        """Rendered hook script contains all canonical stop words from route.py."""
+        from pensieve.route import render_hook_routing_script, _STOP_WORDS
+        rendered = render_hook_routing_script()
+        for word in _STOP_WORDS:
+            assert repr(word) in rendered, f"Stop word {word!r} missing from rendered script"
+
+    def test_render_contains_canonical_skip_reg(self):
+        """Rendered hook script contains all canonical skip registrations from route.py."""
+        from pensieve.route import render_hook_routing_script, _SKIP_REG
+        rendered = render_hook_routing_script()
+        for reg in _SKIP_REG:
+            assert repr(reg) in rendered, f"Skip registration {reg!r} missing from rendered script"
+
+    def test_render_no_pensieve_import(self):
+        """Rendered routing script must not import pensieve."""
+        from pensieve.route import render_hook_routing_script
+        rendered = render_hook_routing_script()
+        assert "from pensieve" not in rendered
+        assert "import pensieve" not in rendered
+
+    def test_render_no_placeholders_remaining(self):
+        """Rendered script must not contain unsubstituted placeholders."""
+        from pensieve.route import render_hook_routing_script
+        rendered = render_hook_routing_script()
+        assert "%%" not in rendered

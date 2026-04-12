@@ -10,8 +10,8 @@ Two artifacts are written:
   2. `.claude/settings.json` — the PreToolUse hook registration
      (merged into existing settings if present)
 
-The hook content is embedded in this module, not read from external
-files, so `pensieve hook install` works from any install location.
+The hook's routing logic is generated from pensieve.route (the canonical
+source of truth) — not hand-maintained here. See route.py for details.
 """
 
 from __future__ import annotations
@@ -20,16 +20,22 @@ import json
 import stat
 from pathlib import Path
 
+from pensieve.route import render_hook_routing_script
+
 # ---------------------------------------------------------------------------
-# Embedded hook content (proven in claude-code/hooks/)
+# Embedded hook content — routing script generated from canonical source
 # ---------------------------------------------------------------------------
 
-HOOK_SCRIPT = '''\
+# Bash boilerplate with %%ROUTING_SCRIPT%% placeholder for the generated
+# stdlib-only Python routing script from route.py.
+_HOOK_SHELL_TEMPLATE = '''\
 #!/bin/bash
 # Code Pensieve PreToolUse hook for Claude Code.
 # Fires before every Glob/Grep. Provides path-aware hints from
 # route-index.json and logs telemetry to hook-telemetry.jsonl.
 # Reference: https://code.claude.com/docs/en/hooks
+#
+# Routing logic generated at install time — do not edit inline.
 
 # Exit early if no agent-docs
 if [ ! -f agent-docs/agent-context-nano.md ]; then
@@ -47,51 +53,15 @@ HINT="Codebase context in CLAUDE.md (nano-digest). For deeper context: Explore s
 HINT_TYPE="fallback"
 TARGET_DOC="agent-docs/agent-context.md"
 
-# Try path-aware routing from route-index.json (v2 schema)
+# Path-aware routing (Bx2): self-contained, no pensieve import needed.
+# Routing script generated at build time (canonical source: route.py).
 ARTIFACT_KIND="fallback"
 TARGET_SUBSYSTEM=""
 ROUTE_MATCH_TYPE="fallback"
 
 if [ -f agent-docs/route-index.json ] && command -v python3 &>/dev/null; then
   ROUTE_RESULT=$(python3 -c "
-import json, sys
-try:
-    with open('agent-docs/route-index.json') as f:
-        idx = json.load(f)
-    query = sys.argv[1] if len(sys.argv) > 1 else ''
-    v = idx.get('version', 1)
-    # v2 schema: subsystem_routes with owns_paths
-    if v >= 2:
-        for route in idx.get('subsystem_routes', []):
-            for p in route.get('owns_paths', []):
-                p = p.rstrip('/')
-                if query.startswith(p):
-                    hint = route.get('role', route['subsystem'])
-                    print(json.dumps({
-                        'hint': hint,
-                        'doc': route.get('doc_path', ''),
-                        'subsystem': route['subsystem'],
-                        'match_type': 'directory_prefix',
-                        'artifact_kind': 'subsystem_doc',
-                    }))
-                    sys.exit(0)
-    # v1 fallback: routes[] with pattern
-    else:
-        for route in idx.get('routes', []):
-            if route.get('match_type') == 'directory_prefix' and query.startswith(route.get('pattern', '')):
-                print(json.dumps({
-                    'hint': route.get('hint', ''),
-                    'doc': route.get('doc_path', ''),
-                    'subsystem': route.get('subsystem', ''),
-                    'match_type': 'directory_prefix',
-                    'artifact_kind': 'subsystem_doc',
-                }))
-                sys.exit(0)
-    # No match — fallback
-    fb = idx.get('fallback_hint', '') if v >= 2 else idx.get('fallback_hint', '')
-    print(json.dumps({'hint': fb, 'doc': 'agent-docs/agent-context.md', 'subsystem': '', 'match_type': 'fallback', 'artifact_kind': 'fallback'}))
-except Exception:
-    print(json.dumps({'hint': '', 'doc': '', 'subsystem': '', 'match_type': 'fallback', 'artifact_kind': 'fallback'}))
+%%ROUTING_SCRIPT%%
 " "$TOOL_INPUT" 2>/dev/null)
 
   if [ -n "$ROUTE_RESULT" ]; then
@@ -101,7 +71,7 @@ except Exception:
     ROUTE_MATCH_TYPE=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('match_type','fallback'))" 2>/dev/null || echo "fallback")
     ARTIFACT_KIND=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('artifact_kind','fallback'))" 2>/dev/null || echo "fallback")
     if [ -n "$ROUTED_HINT" ]; then
-      HINT="$ROUTED_HINT. See $ROUTED_DOC for details."
+      HINT="$ROUTED_HINT"
       HINT_TYPE="routed"
       TARGET_DOC="$ROUTED_DOC"
     fi
@@ -134,6 +104,12 @@ cat <<HOOKEOF
 HOOKEOF
 exit 0
 '''
+
+# Assemble the final hook script at import time by injecting the
+# canonical routing logic from route.py into the bash template.
+HOOK_SCRIPT = _HOOK_SHELL_TEMPLATE.replace(
+    '%%ROUTING_SCRIPT%%', render_hook_routing_script(),
+)
 
 HOOK_ENTRY = {
     "matcher": "Glob|Grep",
