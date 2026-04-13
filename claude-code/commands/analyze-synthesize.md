@@ -314,9 +314,12 @@ exists, use its structure. Otherwise:
 
 The file has two YAML sections inside a code block:
 - `subsystem_routing`: one entry per completed subsystem. Pull
-  `owns_paths` from subsystem Boundaries, `key_files` from Evidence
-  Anchors, `key_tests` from Testing, `common_tasks` from Modification
-  Guide.
+  `role` (one-phrase purpose, e.g. "HTTP request handling"), `owns_paths`
+  from subsystem Boundaries, `key_files` from Evidence Anchors,
+  `key_tests` from Testing, `common_tasks` from Modification Guide.
+  Optionally add `brief_paths` (1-3 most important paths for structural
+  zoom) if the subsystem's `owns_paths` is long — omit to default to
+  owns_paths.
 - `pattern_routing`: one entry per confirmed pattern from patterns.md.
   Pull `template_file` from the example file, `registration` from
   the registration point, `test_template` from the test step.

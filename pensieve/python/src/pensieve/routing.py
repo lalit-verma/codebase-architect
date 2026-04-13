@@ -270,6 +270,14 @@ def build_route_index(
         doc_path = entry.get("doc", f"agent-docs/subsystems/{safe_name}.md")
 
         owns = [str(p) for p in entry.get("owns_paths", [])]
+        # brief_paths: use explicit value from routing-map if provided,
+        # otherwise fall back to owns_paths for backward compatibility.
+        explicit_brief = entry.get("brief_paths")
+        if isinstance(explicit_brief, list) and explicit_brief:
+            brief = [str(p) for p in explicit_brief]
+        else:
+            brief = list(owns)
+
         subsystem_routes.append(SubsystemRoute(
             subsystem=name,
             doc_path=doc_path,
@@ -278,7 +286,7 @@ def build_route_index(
             key_files=[str(f) for f in entry.get("key_files", [])],
             key_tests=[str(t) for t in entry.get("key_tests", [])],
             common_tasks=[str(t) for t in entry.get("common_tasks", [])],
-            brief_paths=list(owns),  # initialized from owns_paths; can be narrowed later
+            brief_paths=brief,
             recursive_children=recursion.get(name, []),
         ))
 

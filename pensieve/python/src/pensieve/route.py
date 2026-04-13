@@ -176,10 +176,10 @@ def _match_directory_prefix(
         route = best_match[1]
         name = route.get("subsystem", "")
         doc = route.get("doc_path", "")
-        role = route.get("role", name)
+        role = route.get("role", "") or ""
         brief_paths = route.get("brief_paths", [])
 
-        hint = f"Subsystem: {name}. {role}. See {doc}."
+        hint = f"Subsystem: {name}. {role + '. ' if role else ''}See {doc}."
         if brief_paths:
             hint += f" For structural detail: {_render_brief_command(brief_paths)}"
 
@@ -378,10 +378,10 @@ if v >= 2:
     if best:
         r = best[1]
         nm = r.get('subsystem','')
-        role = r.get('role', nm)
+        role = r.get('role','') or ''
         doc = r.get('doc_path','')
         bp = r.get('brief_paths', [])
-        hint = f'Subsystem: {nm}. {role}. See {doc}.'
+        hint = ('Subsystem: ' + nm + '. ' + (role + '. ' if role else '') + 'See ' + doc + '.')
         if bp:
             hint += ' For structural detail: pensieve brief ' + ' '.join(shlex.quote(p) for p in bp)
         result = {'hint': hint, 'doc': doc, 'subsystem': nm, 'match_type': 'directory_prefix', 'artifact_kind': 'subsystem_doc', 'brief_suggested': bool(bp)}
