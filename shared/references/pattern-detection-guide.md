@@ -6,9 +6,9 @@ pattern tells it exactly what to create and where to register it.
 
 ## What Counts as a Pattern
 
-A pattern is a recurring code structure where 3+ files follow the same
-shape: similar directory placement, similar naming convention, similar
-internal structure.
+A pattern is a recurring code structure where 3 or more files follow
+the same shape: similar directory placement, similar naming convention,
+similar internal structure.
 
 Examples:
 - API endpoint handlers that all follow the same file structure
@@ -27,14 +27,14 @@ Examples:
 - Generated code structures — agents should not create generated files
 - Standard framework boilerplate documented in the framework's own docs
   (e.g., "Rails controllers inherit from ApplicationController")
-- Patterns with fewer than 3 instances — not enough evidence
+- Patterns with fewer than 3 occurrences — not enough evidence
 
 ## Detection Method
 
 ### During Phase 1 (preliminary)
 
 While scanning evidence:
-1. Note directories containing 3+ files with similar names or structure
+1. Note directories containing 3 or more files with similar names or structure
 2. Note registration points where multiple similar items are wired
 3. Record as "preliminary patterns" in the checkpoint
 4. Do NOT deeply analyze yet — just flag for Phase 2
@@ -57,13 +57,17 @@ While deep-diving each subsystem:
 ### During Phase 3 (consolidation)
 
 1. Collect all patterns detected across subsystem deep dives
-2. Deduplicate: merge patterns that are the same across subsystems
-3. Present to user for confirmation (semi-automated):
-   - Show each pattern with: name, category, example file, file count,
-     proposed steps
+2. Deduplicate: merge patterns that are structurally the same across
+   subsystems. "Consolidate" means merge near-duplicates, NOT prune
+   the catalog down to only the most important patterns.
+3. Present the full list to user for confirmation (semi-automated):
+   - Show every distinct pattern with: name, category, example file,
+     file count, proposed steps
    - User confirms, edits, or removes each pattern
-4. Write confirmed patterns to `agent-docs/patterns.md`
-5. Include the most important patterns in `agent-docs/agent-context.md`
+4. Write all confirmed patterns to `agent-docs/patterns.md` — this is
+   the complete durable catalog
+5. Include only the most important subset in `agent-docs/agent-context.md`
+   — curation happens here, not in patterns.md
 
 ## Pattern Categories
 

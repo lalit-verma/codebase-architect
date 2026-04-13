@@ -259,7 +259,16 @@ If any check fails, fix agent-context-nano.md before proceeding.
 
 ### Step 2: Generate `agent-docs/patterns.md`
 
-Consolidate all patterns detected during Phase 2 deep dives.
+`patterns.md` is the **complete durable catalog** of all distinct
+confirmed patterns. Include every distinct recurring pattern with
+**3 or more occurrences** in the codebase. Merge near-duplicates
+(same shape, different names) but preserve all patterns that are
+structurally distinct. Do not prune this file down to only the
+"most important" patterns — curation belongs in `agent-context.md`
+and `agent-context-nano.md`, not here.
+
+"Consolidate" means deduplicate and merge near-identical patterns.
+It does NOT mean reduce to a small curated subset.
 
 **Semi-automated confirmation:** Before writing, present the full
 pattern list in chat:
