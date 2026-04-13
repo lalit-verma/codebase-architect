@@ -536,14 +536,65 @@ class TestBriefSuggestion:
         assert r.brief_paths == []
         assert "pensieve brief" not in r.hint
 
-    def test_common_task_no_brief(self, tmp_path):
-        """Bx6a: common_task matches do not suggest brief yet."""
+    def test_common_task_weak_no_brief(self, tmp_path):
+        """Bx6b: weak common_task (overlap 1) does not suggest brief."""
         idx = _write_index(tmp_path, _SAMPLE_INDEX)
-        r = route_query("endpoint api", idx)
+        # "endpoint" overlaps 1 keyword with "Add new API endpoint"
+        r = route_query("endpoint", idx)
         assert r.match_type == "common_task"
         assert r.show_brief_hint is False
         assert r.brief_paths == []
         assert "pensieve brief" not in r.hint
+
+    def test_common_task_strong_with_brief(self, tmp_path):
+        """Bx6b: strong common_task (overlap >= 2) with brief_paths → brief suggested."""
+        data = dict(_SAMPLE_INDEX)
+        data["subsystem_routes"] = [{
+            "subsystem": "digest-pipeline",
+            "doc_path": "digest.md",
+            "owns_paths": [],
+            "common_tasks": ["Add new digest pipeline stage"],
+            "brief_paths": ["backend/pipelines/"],
+        }]
+        idx = _write_index(tmp_path, data)
+        # "digest pipeline" → overlap 2 (digest, pipeline)
+        r = route_query("digest pipeline", idx)
+        assert r.match_type == "common_task"
+        assert r.show_brief_hint is True
+        assert r.brief_paths == ["backend/pipelines/"]
+        assert "pensieve brief" in r.hint
+        assert "backend/pipelines/" in r.hint
+
+    def test_common_task_strong_empty_brief_paths(self, tmp_path):
+        """Bx6b: strong overlap but empty brief_paths → no brief."""
+        data = dict(_SAMPLE_INDEX)
+        data["subsystem_routes"] = [{
+            "subsystem": "infra",
+            "doc_path": "infra.md",
+            "owns_paths": [],
+            "common_tasks": ["Deploy service worker"],
+            "brief_paths": [],
+        }]
+        idx = _write_index(tmp_path, data)
+        r = route_query("service worker", idx)
+        assert r.match_type == "common_task"
+        assert r.show_brief_hint is False
+        assert r.brief_paths == []
+        assert "pensieve brief" not in r.hint
+
+    def test_common_task_strong_hint_single_line(self, tmp_path):
+        """Bx6b: strong common_task brief hint stays one line."""
+        data = dict(_SAMPLE_INDEX)
+        data["subsystem_routes"] = [{
+            "subsystem": "digest-pipeline",
+            "doc_path": "digest.md",
+            "owns_paths": [],
+            "common_tasks": ["Add new digest pipeline stage"],
+            "brief_paths": ["backend/pipelines/"],
+        }]
+        idx = _write_index(tmp_path, data)
+        r = route_query("digest pipeline", idx)
+        assert "\n" not in r.hint
 
     def test_fallback_no_brief(self, tmp_path):
         """Fallback never suggests brief."""

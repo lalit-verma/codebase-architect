@@ -1,4 +1,4 @@
-"""Path-aware routing engine for the PreToolUse hook (Bx2, Bx6a).
+"""Path-aware routing engine for the PreToolUse hook (Bx2, Bx6a/b).
 
 Takes a query string (from Glob pattern or Grep query) and a
 route-index.json, returns the best routing hint.
@@ -9,9 +9,10 @@ Priority order:
   3. common_task — query contains keywords from a subsystem's common_tasks
   4. fallback — generic context hint
 
-Delivery policy (Bx6a):
-  - directory_prefix matches with brief_paths → doc + brief suggestion
-  - all other matches → doc only
+Delivery policy (Bx6a + Bx6b):
+  - directory_prefix with brief_paths → doc + brief suggestion (Bx6a)
+  - common_task with overlap >= _MIN_BRIEF_OVERLAP and brief_paths → doc + brief suggestion (Bx6b)
+  - pattern_route, weak common_task, fallback → doc only
 
 Design:
   - Conservative matching — prefer false negatives over false positives
@@ -70,6 +71,12 @@ _SKIP_REG = frozenset({
 # shorter than this threshold are too generic (e.g. "config", "auth", "router")
 # and cause false positives on vague conceptual queries.
 _MIN_PATTERN_FRAG_LEN = 8
+
+# Minimum keyword overlap count for a common_task match to be considered
+# "strong enough" for a brief suggestion (Bx6b). A 1-word overlap is the
+# bare minimum for any common_task match; requiring ≥2 ensures the match
+# has redundant evidence before recommending structural zoom.
+_MIN_BRIEF_OVERLAP = 2
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +268,8 @@ def _match_common_task(
     Best-match-wins: evaluates all candidates and returns the one with the
     highest keyword overlap count. Tie-break: alphabetical subsystem name.
 
-    Bx6a: no brief suggestion for common_task matches (deferred to Bx6b).
+    Bx6b: suggest brief when overlap_count >= _MIN_BRIEF_OVERLAP and
+    brief_paths is non-empty. Weak matches (overlap 1) stay doc-only.
     """
     query_lower = query.lower()
     query_words = set(re.findall(r"[a-z]{3,}", query_lower))
@@ -288,14 +296,25 @@ def _match_common_task(
                     best = (overlap_count, name, route)
 
     if best:
-        name = best[1]
-        doc = best[2].get("doc_path", "")
+        overlap_count, name, route = best
+        doc = route.get("doc_path", "")
+        brief_paths = route.get("brief_paths", [])
+
+        # Bx6b: suggest brief only for strong matches (overlap >= threshold)
+        strong = overlap_count >= _MIN_BRIEF_OVERLAP and bool(brief_paths)
+
+        hint = f"Subsystem: {name}. See {doc}."
+        if strong:
+            hint += f" For structural detail: {_render_brief_command(brief_paths)}"
+
         return RouteResult(
-            hint=f"Subsystem: {name}. See {doc}.",
+            hint=hint,
             doc=doc,
             subsystem=name,
             match_type="common_task",
             artifact_kind="subsystem_doc",
+            brief_paths=brief_paths if strong else [],
+            show_brief_hint=strong,
         )
 
     return None
@@ -322,8 +341,8 @@ def _route_v1(query: str, data: dict, fallback: RouteResult) -> RouteResult:
 # ---------------------------------------------------------------------------
 
 # Template for the self-contained stdlib-only routing script embedded in the
-# bash hook. %%STOP_WORDS%% and %%SKIP_REG%% are replaced with the canonical
-# constants above by render_hook_routing_script().
+# bash hook. %%STOP_WORDS%%, %%SKIP_REG%%, %%MIN_FRAG%%, and %%MIN_BRIEF%%
+# are replaced with canonical constants by render_hook_routing_script().
 #
 # This template mirrors the algorithm in route_query() above but uses only
 # stdlib (json, re, sys, os.path) so the installed hook works without
@@ -405,9 +424,10 @@ if not result and v >= 2:
             result = {'hint': f'Pattern: {pn}. See agent-docs/{da}.', 'doc': f'agent-docs/{da}', 'subsystem': pr.get('subsystem',''), 'match_type': 'pattern_route', 'artifact_kind': 'patterns', 'brief_suggested': False}
             break
 
-# --- Priority 3: common_task (best-match-wins, no brief in Bx6a) ---
+# --- Priority 3: common_task (best-match-wins, brief on strong match Bx6b) ---
 if not result and v >= 2:
     stops = %%STOP_WORDS%%
+    mb = %%MIN_BRIEF%%
     qw = set(w for w in re.findall(r'[a-z]{3,}', ql) if w not in stops)
     if qw:
         best_ct = None
@@ -420,9 +440,14 @@ if not result and v >= 2:
                     if best_ct is None or ov > best_ct[0] or (ov == best_ct[0] and nm < best_ct[1]):
                         best_ct = (ov, nm, r)
         if best_ct:
-            nm = best_ct[1]
-            doc = best_ct[2].get('doc_path','')
-            result = {'hint': f'Subsystem: {nm}. See {doc}.', 'doc': doc, 'subsystem': nm, 'match_type': 'common_task', 'artifact_kind': 'subsystem_doc', 'brief_suggested': False}
+            ov, nm, rte = best_ct
+            doc = rte.get('doc_path','')
+            bp = rte.get('brief_paths', [])
+            strong = ov >= mb and bool(bp)
+            hint = f'Subsystem: {nm}. See {doc}.'
+            if strong:
+                hint += ' For structural detail: pensieve brief ' + ' '.join(shlex.quote(p) for p in bp)
+            result = {'hint': hint, 'doc': doc, 'subsystem': nm, 'match_type': 'common_task', 'artifact_kind': 'subsystem_doc', 'brief_suggested': strong}
 
 # --- v1 fallback ---
 if not result and v < 2:
@@ -452,8 +477,8 @@ def render_hook_routing_script() -> str:
     Returns a Python script string that:
     - Uses only stdlib (json, re, sys, os.path)
     - Implements the same priority order as route_query()
-    - Embeds canonical constants (_STOP_WORDS, _SKIP_REG) from this module
-    - Includes brief_suggested field in result (Bx6a)
+    - Embeds canonical constants (_STOP_WORDS, _SKIP_REG, _MIN_PATTERN_FRAG_LEN, _MIN_BRIEF_OVERLAP)
+    - Includes brief_suggested field in result (Bx6a/b)
 
     This is the ONLY way the hook routing script should be produced.
     Do not hand-maintain a separate copy in hooks.py or elsewhere.
@@ -461,4 +486,5 @@ def render_hook_routing_script() -> str:
     return (_HOOK_ROUTING_TEMPLATE
         .replace('%%STOP_WORDS%%', _set_literal(_STOP_WORDS))
         .replace('%%SKIP_REG%%', _set_literal(_SKIP_REG))
-        .replace('%%MIN_FRAG%%', str(_MIN_PATTERN_FRAG_LEN)))
+        .replace('%%MIN_FRAG%%', str(_MIN_PATTERN_FRAG_LEN))
+        .replace('%%MIN_BRIEF%%', str(_MIN_BRIEF_OVERLAP)))

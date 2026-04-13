@@ -891,3 +891,134 @@ class TestBriefSuggestionHook:
         lines = telemetry_path.read_text().strip().split("\n")
         event = json_mod.loads(lines[-1])
         assert event["brief_suggested"] is False
+
+
+# ---------------------------------------------------------------------------
+# Bx6b: Brief suggestion on strong common_task matches
+# ---------------------------------------------------------------------------
+
+
+class TestBx6bCommonTaskBrief:
+
+    def test_hook_strong_common_task_has_brief(self, tmp_path):
+        """E2E: strong common_task match (overlap >= 2) with brief_paths → brief in hint."""
+        import subprocess
+        from pensieve.hooks import install_hook
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Nano\n")
+
+        import json as json_mod
+        (ad / "route-index.json").write_text(json_mod.dumps({
+            "version": 2,
+            "subsystem_routes": [
+                {
+                    "subsystem": "digest-pipeline",
+                    "doc_path": "agent-docs/subsystems/digest-pipeline.md",
+                    "role": "Digest processing",
+                    "owns_paths": [],
+                    "common_tasks": ["Add new digest pipeline stage"],
+                    "brief_paths": ["backend/pipelines/"],
+                },
+            ],
+            "pattern_routes": [],
+            "fallbacks": {},
+            "fallback_hint": "Fallback.",
+        }))
+
+        install_hook(repo)
+
+        hook_path = repo / ".claude" / "hooks" / "pensieve-pretooluse.sh"
+        input_json = json_mod.dumps({
+            "tool_name": "Grep",
+            "tool_input": {"pattern": "digest pipeline"},
+            "session_id": "test-bx6b-strong",
+        })
+
+        result = subprocess.run(
+            ["bash", str(hook_path)],
+            input=input_json,
+            capture_output=True,
+            text=True,
+            cwd=str(repo),
+            timeout=10,
+        )
+        assert result.returncode == 0
+
+        output = result.stdout.strip()
+        assert output
+        data = json_mod.loads(output)
+        ctx = data["hookSpecificOutput"]["additionalContext"]
+        assert "pensieve brief" in ctx
+        assert "backend/pipelines/" in ctx
+
+        # Telemetry should mark brief_suggested=true
+        telemetry_path = ad / "hook-telemetry.jsonl"
+        assert telemetry_path.exists()
+        event = json_mod.loads(telemetry_path.read_text().strip().split("\n")[-1])
+        assert event["brief_suggested"] is True
+        assert event["route_match_type"] == "common_task"
+
+    def test_hook_weak_common_task_no_brief(self, tmp_path):
+        """E2E: weak common_task match (overlap 1) → no brief in hint."""
+        import subprocess
+        from pensieve.hooks import install_hook
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Nano\n")
+
+        import json as json_mod
+        (ad / "route-index.json").write_text(json_mod.dumps({
+            "version": 2,
+            "subsystem_routes": [
+                {
+                    "subsystem": "api-routers",
+                    "doc_path": "agent-docs/subsystems/api-routers.md",
+                    "role": "HTTP",
+                    "owns_paths": [],
+                    "common_tasks": ["Add new API endpoint"],
+                    "brief_paths": ["backend/routers/"],
+                },
+            ],
+            "pattern_routes": [],
+            "fallbacks": {},
+            "fallback_hint": "Fallback.",
+        }))
+
+        install_hook(repo)
+
+        hook_path = repo / ".claude" / "hooks" / "pensieve-pretooluse.sh"
+        input_json = json_mod.dumps({
+            "tool_name": "Grep",
+            "tool_input": {"pattern": "endpoint"},
+            "session_id": "test-bx6b-weak",
+        })
+
+        result = subprocess.run(
+            ["bash", str(hook_path)],
+            input=input_json,
+            capture_output=True,
+            text=True,
+            cwd=str(repo),
+            timeout=10,
+        )
+        assert result.returncode == 0
+
+        output = result.stdout.strip()
+        assert output
+        data = json_mod.loads(output)
+        ctx = data["hookSpecificOutput"]["additionalContext"]
+        assert "pensieve brief" not in ctx
+
+        # Telemetry should mark brief_suggested=false
+        telemetry_path = ad / "hook-telemetry.jsonl"
+        assert telemetry_path.exists()
+        event = json_mod.loads(telemetry_path.read_text().strip().split("\n")[-1])
+        assert event["brief_suggested"] is False
+        assert event["route_match_type"] == "common_task"
