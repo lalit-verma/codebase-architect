@@ -674,16 +674,92 @@ def _cmd_wire(args) -> int:
     print(f"Nano:     {nano_result['nano']} -> CLAUDE.md {nano_result['claudemd']}", flush=True)
     print(f"Hook:     script={hook_result['script']}, settings={hook_result['settings']}", flush=True)
 
-    # Refresh route-index.json from routing-map.md if available
-    from pensieve.routing import build_route_index, save_route_index
+    # Refresh route-index.json from routing-map.md + routing-lock.yaml
+    from pensieve.routing import (
+        build_route_index, save_route_index,
+        load_routing_lock, derive_lock_from_index, save_routing_lock,
+        merge_candidate_with_lock, update_lock_with_new_entries,
+    )
     routing_map_path = repo_root / "agent-docs" / "routing-map.md"
     analysis_state_path = repo_root / "agent-docs" / ".analysis-state.md"
+    lock_path = repo_root / "agent-docs" / "routing-lock.yaml"
 
     if routing_map_path.exists():
-        index = build_route_index(
+        candidate = build_route_index(
             routing_map_path,
             analysis_state_path if analysis_state_path.exists() else None,
         )
+
+        # Load or create routing lock
+        lock_status, lock = load_routing_lock(lock_path)
+
+        if lock_status == "malformed":
+            # Lock exists but is broken — warn, do NOT overwrite, use candidate only
+            print(
+                f"Route Lock: WARNING — {lock_path} is malformed, skipping lock.\n"
+                f"  Fix or delete the file manually, then re-run pensieve wire.",
+                flush=True,
+            )
+            print(
+                f"  WARNING: routing-lock.yaml is malformed — "
+                f"building route-index from candidate only",
+                file=sys.stderr,
+            )
+            index = candidate
+        elif lock_status == "missing":
+            # First run: derive lock from candidate, write it
+            lock = derive_lock_from_index(candidate)
+            save_routing_lock(lock, lock_path)
+            index = candidate
+            n_sub = len(index.subsystem_routes)
+            n_pat = len(index.pattern_routes)
+            print(f"Route Lock: created {lock_path}", flush=True)
+            print(f"  Locked: {n_sub} subsystems, {n_pat} patterns", flush=True)
+        else:
+            # Rerun: merge candidate with lock
+            index, report = merge_candidate_with_lock(candidate, lock)
+
+            # Auto-append new entries to lock
+            if report.new_subsystems or report.new_patterns:
+                updated_lock = update_lock_with_new_entries(lock, index, report)
+                save_routing_lock(updated_lock, lock_path)
+
+            # Print reconciliation summary
+            print(f"Route Lock: applied {lock_path}", flush=True)
+            print(
+                f"  Subsystems: {report.subsystems_matched} matched, "
+                f"{report.subsystems_new} new, "
+                f"{report.subsystems_stale} stale",
+                flush=True,
+            )
+            print(
+                f"  Patterns: {report.patterns_matched} matched, "
+                f"{report.patterns_new} new, "
+                f"{report.patterns_stale} stale",
+                flush=True,
+            )
+            overrides = (
+                report.locked_role_overrides
+                + report.locked_common_tasks_overrides
+                + report.locked_brief_paths_overrides
+            )
+            if overrides > 0:
+                print(f"  Locked overrides applied: {overrides}", flush=True)
+                if report.locked_role_overrides:
+                    print(f"    role: {report.locked_role_overrides}", flush=True)
+                if report.locked_common_tasks_overrides:
+                    print(f"    common_tasks: {report.locked_common_tasks_overrides}", flush=True)
+                if report.locked_brief_paths_overrides:
+                    print(f"    brief_paths: {report.locked_brief_paths_overrides}", flush=True)
+            if report.stale_subsystems:
+                print(f"  Stale subsystems (excluded): {report.stale_subsystems}", flush=True)
+            if report.stale_patterns:
+                print(f"  Stale patterns (excluded): {report.stale_patterns}", flush=True)
+            if report.new_subsystems:
+                print(f"  New subsystems (auto-locked): {report.new_subsystems}", flush=True)
+            if report.new_patterns:
+                print(f"  New patterns (auto-locked): {report.new_patterns}", flush=True)
+
         route_path = save_route_index(
             index, repo_root / "agent-docs" / "route-index.json",
         )
