@@ -1,4 +1,4 @@
-"""Path-aware routing engine for the PreToolUse hook (Bx2, Bx6a/b).
+"""Path-aware routing engine for the PreToolUse hook (Bx2, Bx6, Bx7a).
 
 Takes a query string (from Glob pattern or Grep query) and a
 route-index.json, returns the best routing hint.
@@ -9,15 +9,25 @@ Priority order:
   3. common_task — query contains keywords from a subsystem's common_tasks
   4. fallback — generic context hint
 
-Delivery policy (Bx6a + Bx6b):
-  - directory_prefix with brief_paths → doc + brief suggestion (Bx6a)
-  - common_task with overlap >= _MIN_BRIEF_OVERLAP and brief_paths → doc + brief suggestion (Bx6b)
+Delivery policy:
+  - directory_prefix with brief_paths → doc + directive brief (Bx7a)
+    "Before further search, run: pensieve brief <paths>"
+  - common_task with overlap >= _MIN_BRIEF_OVERLAP and brief_paths →
+    doc + suggested brief (Bx6b)
+    "For structural detail: pensieve brief <paths>"
   - pattern_route, weak common_task, fallback → doc only
+
+brief_mode telemetry:
+  - "instructed" — directive brief shown (directory_prefix, Bx7a)
+  - "suggested" — suggestion brief shown (common_task, Bx6b)
+  - "none" — no brief in hint
+  Note: brief_mode tracks what hint was shown, not whether the agent
+  actually ran pensieve brief.
 
 Design:
   - Conservative matching — prefer false negatives over false positives
   - Deterministic — same query + same index → same result
-  - Single best hint — one line, one doc pointer, optional brief suggestion
+  - Single best hint — one line, one doc pointer, optional brief action
   - Longest-prefix-wins for directory matching
 
 This module is the canonical routing file. It contains both the library
@@ -47,7 +57,7 @@ class RouteResult:
     artifact_kind: str  # subsystem_doc, patterns, fallback
     brief_paths: list[str] = field(default_factory=list)
     show_brief_hint: bool = False
-    brief_mode: str = "none"  # none, instructed (Bx7a dir_prefix), suggested (Bx6b common_task)
+    brief_mode: str = "none"  # what hint was shown: none | instructed (Bx7a) | suggested (Bx6b)
 
 
 # ---------------------------------------------------------------------------
