@@ -336,7 +336,7 @@ class TestCLI:
 
 class TestWireNano:
 
-    def test_creates_claudemd_if_missing(self, tmp_path):
+    def test_creates_claudemd_with_both_sections(self, tmp_path):
         from pensieve.hooks import wire_nano_to_claudemd
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -349,11 +349,17 @@ class TestWireNano:
         assert result["claudemd"] == "created"
 
         content = (repo / "CLAUDE.md").read_text()
+        # Nano section
         assert "# Nano" in content
         assert "<!-- pensieve:nano:start -->" in content
         assert "<!-- pensieve:nano:end -->" in content
+        # Usage section
+        assert "<!-- pensieve:usage:start -->" in content
+        assert "<!-- pensieve:usage:end -->" in content
+        assert "## Pensieve" in content
+        assert "pensieve brief" in content
 
-    def test_appends_to_existing_claudemd(self, tmp_path):
+    def test_appends_both_sections_to_existing_claudemd(self, tmp_path):
         from pensieve.hooks import wire_nano_to_claudemd
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -368,6 +374,9 @@ class TestWireNano:
         content = (repo / "CLAUDE.md").read_text()
         assert "Existing content." in content
         assert "# Nano" in content
+        assert "## Pensieve" in content
+        assert content.count("<!-- pensieve:nano:start -->") == 1
+        assert content.count("<!-- pensieve:usage:start -->") == 1
 
     def test_replaces_existing_section(self, tmp_path):
         from pensieve.hooks import wire_nano_to_claudemd
@@ -393,7 +402,7 @@ class TestWireNano:
         assert "More content." in content
         assert content.count("<!-- pensieve:nano:start -->") == 1
 
-    def test_idempotent(self, tmp_path):
+    def test_idempotent_both_sections(self, tmp_path):
         from pensieve.hooks import wire_nano_to_claudemd
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -402,8 +411,40 @@ class TestWireNano:
         (ad / "agent-context-nano.md").write_text("# Nano\n")
 
         wire_nano_to_claudemd(repo)
+        content_after_first = (repo / "CLAUDE.md").read_text()
+
         result = wire_nano_to_claudemd(repo)
         assert result["claudemd"] == "unchanged"
+
+        content_after_second = (repo / "CLAUDE.md").read_text()
+        assert content_after_first == content_after_second
+        # No duplicates
+        assert content_after_second.count("<!-- pensieve:nano:start -->") == 1
+        assert content_after_second.count("<!-- pensieve:usage:start -->") == 1
+
+    def test_replaces_usage_section_without_duplication(self, tmp_path):
+        """Existing usage section is replaced, not duplicated."""
+        from pensieve.hooks import wire_nano_to_claudemd
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Nano\n")
+        (repo / "CLAUDE.md").write_text(
+            "# Project\n\n"
+            "<!-- pensieve:usage:start -->\n"
+            "Old usage content.\n"
+            "<!-- pensieve:usage:end -->\n"
+        )
+
+        result = wire_nano_to_claudemd(repo)
+        assert result["claudemd"] == "updated"
+
+        content = (repo / "CLAUDE.md").read_text()
+        assert "Old usage content." not in content
+        assert "## Pensieve" in content
+        assert content.count("<!-- pensieve:usage:start -->") == 1
+        assert content.count("<!-- pensieve:nano:start -->") == 1
 
     def test_nano_not_found(self, tmp_path):
         from pensieve.hooks import wire_nano_to_claudemd
@@ -416,7 +457,7 @@ class TestWireNano:
 
 class TestUnwireNano:
 
-    def test_removes_section(self, tmp_path):
+    def test_removes_both_sections(self, tmp_path):
         from pensieve.hooks import unwire_nano_from_claudemd
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -424,7 +465,10 @@ class TestUnwireNano:
             "# Project\n\n"
             "<!-- pensieve:nano:start -->\n"
             "# Nano\n"
-            "<!-- pensieve:nano:end -->\n"
+            "<!-- pensieve:nano:end -->\n\n"
+            "<!-- pensieve:usage:start -->\n"
+            "## Pensieve\nUsage guide.\n"
+            "<!-- pensieve:usage:end -->\n"
             "\nKeep this.\n"
         )
 
@@ -433,6 +477,7 @@ class TestUnwireNano:
 
         content = (repo / "CLAUDE.md").read_text()
         assert "Nano" not in content
+        assert "Pensieve" not in content
         assert "Keep this." in content
 
     def test_no_claudemd(self, tmp_path):

@@ -284,21 +284,90 @@ def uninstall_hook(repo_root: Path) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# CLAUDE.md nano-digest wiring
+# CLAUDE.md managed sections
 # ---------------------------------------------------------------------------
 
 _NANO_START = "<!-- pensieve:nano:start -->"
 _NANO_END = "<!-- pensieve:nano:end -->"
 
+_USAGE_START = "<!-- pensieve:usage:start -->"
+_USAGE_END = "<!-- pensieve:usage:end -->"
+
+_USAGE_CONTENT = """\
+## Pensieve
+
+Pensieve is this repo's structural context tool. Use it to get fast orientation once the relevant path, subsystem, or slice is already known.
+
+### When to use it
+- Use `pensieve brief <paths>` when routing, file paths, or your current search already narrowed the work to a subsystem or directory slice.
+- Prefer it before repeated broad `Glob` / `Grep` when you need structure, not just one symbol.
+- Do not use it for vague repo-wide questions when the relevant area is still unknown.
+
+### What it gives you
+`pensieve brief` returns a structural map for the selected slice:
+- key files and signatures
+- internal dependencies
+- entry points / wiring files
+- related tests
+- important rationale comments (`WHY`, `HACK`, `IMPORTANT`)
+
+### How to use it well
+- Start with the routed subsystem or path slice.
+- Run `pensieve brief <paths>`.
+- Use the brief to choose the next files to open, then continue with targeted reads and edits.
+- Prefer this over reading large `agent-docs/` files in the main thread.
+
+Treat Pensieve as the default structural tool once the area of work is known."""
+
+
+def _upsert_section(content: str, start_marker: str, end_marker: str, section_body: str) -> tuple[str, str]:
+    """Insert or replace a marker-delimited section in content.
+
+    Returns (new_content, status) where status is "inserted", "replaced", or "unchanged".
+    """
+    section = f"{start_marker}\n{section_body}\n{end_marker}"
+
+    if start_marker in content and end_marker in content:
+        start_idx = content.index(start_marker)
+        end_idx = content.index(end_marker) + len(end_marker)
+        if end_idx < len(content) and content[end_idx] == "\n":
+            end_idx += 1
+        new_content = content[:start_idx] + section + "\n" + content[end_idx:]
+        if new_content.strip() == content.strip():
+            return content, "unchanged"
+        return new_content, "replaced"
+
+    if not content.endswith("\n"):
+        content += "\n"
+    return content + "\n" + section + "\n", "inserted"
+
+
+def _remove_section(content: str, start_marker: str, end_marker: str) -> tuple[str, bool]:
+    """Remove a marker-delimited section from content.
+
+    Returns (new_content, was_removed).
+    """
+    if start_marker not in content or end_marker not in content:
+        return content, False
+
+    start_idx = content.index(start_marker)
+    end_idx = content.index(end_marker) + len(end_marker)
+    if end_idx < len(content) and content[end_idx] == "\n":
+        end_idx += 1
+    if start_idx > 0 and content[start_idx - 1] == "\n":
+        start_idx -= 1
+
+    return content[:start_idx] + content[end_idx:], True
+
 
 def wire_nano_to_claudemd(repo_root: Path) -> dict[str, str]:
-    """Inline agent-context-nano.md into CLAUDE.md.
+    """Inline agent-context-nano.md and Pensieve usage section into CLAUDE.md.
 
-    Reads the nano-digest from agent-docs/agent-context-nano.md and
-    inlines it into CLAUDE.md wrapped in section markers. If CLAUDE.md
-    already has a pensieve section, it is replaced. If CLAUDE.md doesn't
-    exist, it is created.
+    Manages two pensieve-owned sections:
+      1. Repo-specific nano-digest (from agent-docs/agent-context-nano.md)
+      2. Generic Pensieve usage guide (static content)
 
+    Both are wrapped in marker comments and updated idempotently.
     User content outside the markers is preserved.
 
     Returns:
@@ -317,43 +386,41 @@ def wire_nano_to_claudemd(repo_root: Path) -> dict[str, str]:
     nano_content = nano_path.read_text(encoding="utf-8").strip()
     result["nano"] = "inlined"
 
-    section = f"{_NANO_START}\n{nano_content}\n{_NANO_END}"
-
     claudemd_path = repo_root / "CLAUDE.md"
 
     if not claudemd_path.exists():
-        claudemd_path.write_text(section + "\n", encoding="utf-8")
+        # Create with both sections
+        content = (
+            f"{_NANO_START}\n{nano_content}\n{_NANO_END}\n\n"
+            f"{_USAGE_START}\n{_USAGE_CONTENT}\n{_USAGE_END}\n"
+        )
+        claudemd_path.write_text(content, encoding="utf-8")
         result["claudemd"] = "created"
         return result
 
     existing = claudemd_path.read_text(encoding="utf-8")
 
-    if _NANO_START in existing and _NANO_END in existing:
-        start_idx = existing.index(_NANO_START)
-        end_idx = existing.index(_NANO_END) + len(_NANO_END)
-        if end_idx < len(existing) and existing[end_idx] == "\n":
-            end_idx += 1
-        new_content = existing[:start_idx] + section + "\n" + existing[end_idx:]
+    # Upsert nano section
+    content, nano_status = _upsert_section(existing, _NANO_START, _NANO_END, nano_content)
 
-        if new_content.strip() == existing.strip():
-            result["claudemd"] = "unchanged"
-        else:
-            claudemd_path.write_text(new_content, encoding="utf-8")
-            result["claudemd"] = "updated"
+    # Upsert usage section
+    content, usage_status = _upsert_section(content, _USAGE_START, _USAGE_END, _USAGE_CONTENT)
+
+    if nano_status == "unchanged" and usage_status == "unchanged":
+        result["claudemd"] = "unchanged"
     else:
-        if not existing.endswith("\n"):
-            existing += "\n"
-        claudemd_path.write_text(
-            existing + "\n" + section + "\n",
-            encoding="utf-8",
-        )
+        claudemd_path.write_text(content, encoding="utf-8")
         result["claudemd"] = "updated"
 
     return result
 
 
 def unwire_nano_from_claudemd(repo_root: Path) -> dict[str, str]:
-    """Remove the pensieve nano section from CLAUDE.md.
+    """Remove both pensieve-managed sections from CLAUDE.md.
+
+    Removes:
+      1. Nano-digest section
+      2. Pensieve usage section
 
     Returns:
         Dict with keys:
@@ -366,17 +433,11 @@ def unwire_nano_from_claudemd(repo_root: Path) -> dict[str, str]:
 
     existing = claudemd_path.read_text(encoding="utf-8")
 
-    if _NANO_START not in existing or _NANO_END not in existing:
+    content, nano_removed = _remove_section(existing, _NANO_START, _NANO_END)
+    content, usage_removed = _remove_section(content, _USAGE_START, _USAGE_END)
+
+    if not nano_removed and not usage_removed:
         return {"claudemd": "no_section"}
 
-    start_idx = existing.index(_NANO_START)
-    end_idx = existing.index(_NANO_END) + len(_NANO_END)
-    if end_idx < len(existing) and existing[end_idx] == "\n":
-        end_idx += 1
-    if start_idx > 0 and existing[start_idx - 1] == "\n":
-        start_idx -= 1
-
-    new_content = existing[:start_idx] + existing[end_idx:]
-    claudemd_path.write_text(new_content, encoding="utf-8")
-
+    claudemd_path.write_text(content, encoding="utf-8")
     return {"claudemd": "removed"}
