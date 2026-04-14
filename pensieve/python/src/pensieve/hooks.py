@@ -59,6 +59,7 @@ ARTIFACT_KIND="fallback"
 TARGET_SUBSYSTEM=""
 ROUTE_MATCH_TYPE="fallback"
 BRIEF_SUGGESTED="false"
+BRIEF_MODE="none"
 
 if [ -f agent-docs/route-index.json ] && command -v python3 &>/dev/null; then
   ROUTE_RESULT=$(python3 -c "
@@ -72,6 +73,7 @@ if [ -f agent-docs/route-index.json ] && command -v python3 &>/dev/null; then
     ROUTE_MATCH_TYPE=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('match_type','fallback'))" 2>/dev/null || echo "fallback")
     ARTIFACT_KIND=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('artifact_kind','fallback'))" 2>/dev/null || echo "fallback")
     BRIEF_SUGGESTED=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print('true' if json.load(sys.stdin).get('brief_suggested',False) else 'false')" 2>/dev/null || echo "false")
+    BRIEF_MODE=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('brief_mode','none'))" 2>/dev/null || echo "none")
     if [ -n "$ROUTED_HINT" ]; then
       HINT="$ROUTED_HINT"
       HINT_TYPE="routed"
@@ -96,10 +98,11 @@ event = {
     'target_subsystem': sys.argv[8],
     'session_id': sys.argv[9],
     'brief_suggested': sys.argv[10] == 'true',
+    'brief_mode': sys.argv[11],
 }
 with open('agent-docs/hook-telemetry.jsonl', 'a') as f:
     f.write(json.dumps(event) + '\\n')
-" "$TIMESTAMP" "$TOOL_NAME" "$TOOL_INPUT" "$HINT_TYPE" "$ROUTE_MATCH_TYPE" "$ARTIFACT_KIND" "$TARGET_DOC" "$TARGET_SUBSYSTEM" "$SESSION_ID" "$BRIEF_SUGGESTED" 2>/dev/null
+" "$TIMESTAMP" "$TOOL_NAME" "$TOOL_INPUT" "$HINT_TYPE" "$ROUTE_MATCH_TYPE" "$ARTIFACT_KIND" "$TARGET_DOC" "$TARGET_SUBSYSTEM" "$SESSION_ID" "$BRIEF_SUGGESTED" "$BRIEF_MODE" 2>/dev/null
 
 # Output the hook response
 cat <<HOOKEOF
@@ -193,17 +196,29 @@ def install_hook(repo_root: Path) -> dict[str, str]:
         for h in pre_tool
     )
 
+    hook_changed = False
     if already:
         result["settings"] = "already_registered"
     else:
-        # Track whether settings.json existed before we write
-        is_new_settings = not settings_path.exists()
         pre_tool.append(HOOK_ENTRY)
+        hook_changed = True
+
+    # --- Merge permissions allowlist for pensieve CLI ---
+    _PENSIEVE_ALLOW = "Bash(pensieve:*)"
+    permissions = settings.setdefault("permissions", {})
+    allow_list = permissions.setdefault("allow", [])
+    if _PENSIEVE_ALLOW not in allow_list:
+        allow_list.append(_PENSIEVE_ALLOW)
+        hook_changed = True
+
+    if hook_changed:
+        is_new_settings = not settings_path.exists()
         settings_path.write_text(
             json.dumps(settings, indent=2) + "\n",
             encoding="utf-8",
         )
-        result["settings"] = "created" if is_new_settings else "merged"
+        if result.get("settings") != "already_registered":
+            result["settings"] = "created" if is_new_settings else "merged"
 
     return result
 
@@ -281,21 +296,91 @@ def uninstall_hook(repo_root: Path) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# CLAUDE.md nano-digest wiring
+# CLAUDE.md managed sections
 # ---------------------------------------------------------------------------
 
 _NANO_START = "<!-- pensieve:nano:start -->"
 _NANO_END = "<!-- pensieve:nano:end -->"
 
+_USAGE_START = "<!-- pensieve:usage:start -->"
+_USAGE_END = "<!-- pensieve:usage:end -->"
+
+_USAGE_CONTENT = """\
+## Pensieve
+
+`pensieve brief <paths>` is this repo's structural context tool. It is **mandatory** before broad search inside a known subsystem.
+
+### Rules
+- MUST run `pensieve brief <paths>` before reading any file over 300 lines in a known subsystem.
+- MUST run `pensieve brief <paths>` before more than one `Grep` in the same subsystem.
+- Searching a known subsystem without a prior `pensieve brief` is a process error.
+- Skip only if you already ran `pensieve brief` for this subsystem earlier in this session.
+
+### What it gives you
+`pensieve brief` returns a structural map for the selected slice:
+- key files and signatures (sorted by dependency count)
+- internal dependencies between files
+- entry points and wiring files
+- related tests
+- important rationale comments (`WHY`, `HACK`, `IMPORTANT`)
+
+### How to use it
+1. Identify the subsystem from the routing hint or file path.
+2. Run `pensieve brief <paths>`.
+3. Use the brief output to choose the right files to open.
+4. Continue with targeted reads and edits.
+
+This replaces reading large `agent-docs/` files in the main thread."""
+
+
+def _upsert_section(content: str, start_marker: str, end_marker: str, section_body: str) -> tuple[str, str]:
+    """Insert or replace a marker-delimited section in content.
+
+    Returns (new_content, status) where status is "inserted", "replaced", or "unchanged".
+    """
+    section = f"{start_marker}\n{section_body}\n{end_marker}"
+
+    if start_marker in content and end_marker in content:
+        start_idx = content.index(start_marker)
+        end_idx = content.index(end_marker) + len(end_marker)
+        if end_idx < len(content) and content[end_idx] == "\n":
+            end_idx += 1
+        new_content = content[:start_idx] + section + "\n" + content[end_idx:]
+        if new_content.strip() == content.strip():
+            return content, "unchanged"
+        return new_content, "replaced"
+
+    if not content.endswith("\n"):
+        content += "\n"
+    return content + "\n" + section + "\n", "inserted"
+
+
+def _remove_section(content: str, start_marker: str, end_marker: str) -> tuple[str, bool]:
+    """Remove a marker-delimited section from content.
+
+    Returns (new_content, was_removed).
+    """
+    if start_marker not in content or end_marker not in content:
+        return content, False
+
+    start_idx = content.index(start_marker)
+    end_idx = content.index(end_marker) + len(end_marker)
+    if end_idx < len(content) and content[end_idx] == "\n":
+        end_idx += 1
+    if start_idx > 0 and content[start_idx - 1] == "\n":
+        start_idx -= 1
+
+    return content[:start_idx] + content[end_idx:], True
+
 
 def wire_nano_to_claudemd(repo_root: Path) -> dict[str, str]:
-    """Inline agent-context-nano.md into CLAUDE.md.
+    """Inline agent-context-nano.md and Pensieve usage section into CLAUDE.md.
 
-    Reads the nano-digest from agent-docs/agent-context-nano.md and
-    inlines it into CLAUDE.md wrapped in section markers. If CLAUDE.md
-    already has a pensieve section, it is replaced. If CLAUDE.md doesn't
-    exist, it is created.
+    Manages two pensieve-owned sections:
+      1. Repo-specific nano-digest (from agent-docs/agent-context-nano.md)
+      2. Generic Pensieve usage guide (static content)
 
+    Both are wrapped in marker comments and updated idempotently.
     User content outside the markers is preserved.
 
     Returns:
@@ -314,43 +399,41 @@ def wire_nano_to_claudemd(repo_root: Path) -> dict[str, str]:
     nano_content = nano_path.read_text(encoding="utf-8").strip()
     result["nano"] = "inlined"
 
-    section = f"{_NANO_START}\n{nano_content}\n{_NANO_END}"
-
     claudemd_path = repo_root / "CLAUDE.md"
 
     if not claudemd_path.exists():
-        claudemd_path.write_text(section + "\n", encoding="utf-8")
+        # Create with both sections
+        content = (
+            f"{_NANO_START}\n{nano_content}\n{_NANO_END}\n\n"
+            f"{_USAGE_START}\n{_USAGE_CONTENT}\n{_USAGE_END}\n"
+        )
+        claudemd_path.write_text(content, encoding="utf-8")
         result["claudemd"] = "created"
         return result
 
     existing = claudemd_path.read_text(encoding="utf-8")
 
-    if _NANO_START in existing and _NANO_END in existing:
-        start_idx = existing.index(_NANO_START)
-        end_idx = existing.index(_NANO_END) + len(_NANO_END)
-        if end_idx < len(existing) and existing[end_idx] == "\n":
-            end_idx += 1
-        new_content = existing[:start_idx] + section + "\n" + existing[end_idx:]
+    # Upsert nano section
+    content, nano_status = _upsert_section(existing, _NANO_START, _NANO_END, nano_content)
 
-        if new_content.strip() == existing.strip():
-            result["claudemd"] = "unchanged"
-        else:
-            claudemd_path.write_text(new_content, encoding="utf-8")
-            result["claudemd"] = "updated"
+    # Upsert usage section
+    content, usage_status = _upsert_section(content, _USAGE_START, _USAGE_END, _USAGE_CONTENT)
+
+    if nano_status == "unchanged" and usage_status == "unchanged":
+        result["claudemd"] = "unchanged"
     else:
-        if not existing.endswith("\n"):
-            existing += "\n"
-        claudemd_path.write_text(
-            existing + "\n" + section + "\n",
-            encoding="utf-8",
-        )
+        claudemd_path.write_text(content, encoding="utf-8")
         result["claudemd"] = "updated"
 
     return result
 
 
 def unwire_nano_from_claudemd(repo_root: Path) -> dict[str, str]:
-    """Remove the pensieve nano section from CLAUDE.md.
+    """Remove both pensieve-managed sections from CLAUDE.md.
+
+    Removes:
+      1. Nano-digest section
+      2. Pensieve usage section
 
     Returns:
         Dict with keys:
@@ -363,17 +446,11 @@ def unwire_nano_from_claudemd(repo_root: Path) -> dict[str, str]:
 
     existing = claudemd_path.read_text(encoding="utf-8")
 
-    if _NANO_START not in existing or _NANO_END not in existing:
+    content, nano_removed = _remove_section(existing, _NANO_START, _NANO_END)
+    content, usage_removed = _remove_section(content, _USAGE_START, _USAGE_END)
+
+    if not nano_removed and not usage_removed:
         return {"claudemd": "no_section"}
 
-    start_idx = existing.index(_NANO_START)
-    end_idx = existing.index(_NANO_END) + len(_NANO_END)
-    if end_idx < len(existing) and existing[end_idx] == "\n":
-        end_idx += 1
-    if start_idx > 0 and existing[start_idx - 1] == "\n":
-        start_idx -= 1
-
-    new_content = existing[:start_idx] + existing[end_idx:]
-    claudemd_path.write_text(new_content, encoding="utf-8")
-
+    claudemd_path.write_text(content, encoding="utf-8")
     return {"claudemd": "removed"}

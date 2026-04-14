@@ -1004,7 +1004,50 @@ hook ideas. We only implement the highest-leverage pieces:
   | Co-located duplication in routing | Accept for now | `route.py` is the canonical routing file, but both library logic and hook template still need to be kept in sync | For every future routing change, review both code paths explicitly; harden further only if this becomes a real maintenance tax |
   | Telemetry gap | Monitor and plan | We know when `brief` was suggested, but not yet whether it was actually used or whether it reduced blind search | Extend telemetry later to correlate suggestions with subsequent `pensieve brief` usage and search-thrash reduction before expanding Bx6 further |
 
-- [ ] **Bx7.** Add freshness and validity checks for routed artifacts.
+- [x] **Bx7.** Make `brief` the default structural action on strong subsystem matches.
+  Three-part adoption layer that moves `pensieve brief` from optional
+  suggestion to enforced workflow step. Agent-invoked, not hook-run.
+
+  - [x] **Bx7a.** Forced-eval hook on strong subsystem matches.
+    On `directory_prefix` matches with `brief_paths`, the PreToolUse
+    hook injects a forced evaluation: “MUST run `pensieve brief <paths>`
+    before this search OR state why you are not running pensieve brief.”
+    Forces the agent to commit (run brief) or explicitly justify
+    skipping — no silent pass-through.
+
+    Scope:
+    - `directory_prefix` only
+    - not on `pattern_route`, `common_task`, or `fallback`
+    - `brief_mode = instructed` in telemetry
+
+  - [x] **Bx7b.** Permissions allowlist for frictionless execution.
+    `pensieve wire` adds `Bash(pensieve:*)` to `.claude/settings.json`
+    → `permissions.allow`. Removes the approval dialog when the agent
+    runs pensieve, so the forced-eval hook flows into immediate
+    execution without user interaction.
+
+  - [x] **Bx7c.** Hard rules in CLAUDE.md for pensieve usage.
+    `pensieve wire` inlines a `<!-- pensieve:usage -->` managed section
+    into CLAUDE.md with mandatory rules:
+    - MUST run `pensieve brief` before reading files >300 lines in a
+      known subsystem
+    - MUST run `pensieve brief` before more than one Grep in the same
+      subsystem
+    - Skipping is a process error unless brief was already run this
+      session
+
+    Advisory CLAUDE.md guidance was tested and found insufficient —
+    agents skip soft preferences under time pressure. Hard rules +
+    forced-eval hook together produce reliable adoption.
+
+  Note: Bx7b originally proposed automatic brief preload (hook runs
+  `pensieve brief` and injects output). This was implemented, tested,
+  and reverted — Codex review correctly identified that auto-injecting
+  large persistent context without strict gating is riskier than
+  agent-invoked execution with forced evaluation. The current design
+  keeps the agent in control while making skipping explicit.
+
+- [ ] **Bx8.** Add freshness and validity checks for routed artifacts.
   Routing should not rely on stale structural summaries. Add stage-
   specific fingerprints for:
   - `structural-profiles.md`
@@ -1016,7 +1059,7 @@ hook ideas. We only implement the highest-leverage pieces:
   Hook behavior should degrade gracefully when artifacts are stale or
   partial.
 
-- [ ] **Bx8.** Benchmark the adaptive hook layer.
+- [ ] **Bx9.** Benchmark the adaptive hook layer.
   Compare:
   - docs only
   - docs + current hook
@@ -1093,8 +1136,9 @@ Why second:
 - route agents to the right subsystem and the right `brief` early
 
 **Wave 3 — optimization layers**
-6. `Bx4` anti-thrash intervention
-7. `Bx3` recipe-first hints
+6. `Bx7` brief adoption layer (forced eval + permissions + CLAUDE.md rules) ✅
+7. `Bx4` anti-thrash intervention
+8. `Bx3` recipe-first hints
 
 Why third:
 - these build on top of basic routing
@@ -1102,8 +1146,8 @@ Why third:
   simpler routing is working
 
 **Wave 4 — hardening + validation**
-8. `Bx7` freshness/validity
-9. `Bx8` benchmark ablation
+9. `Bx8` freshness/validity
+10. `Bx9` benchmark ablation
 
 Why fourth:
 - freshness hardening matters once routing is real

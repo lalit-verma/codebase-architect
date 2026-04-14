@@ -31,7 +31,7 @@ from pensieve.hooks import install_hook, uninstall_hook, HOOK_SCRIPT, HOOK_ENTRY
 class TestInstallHook:
 
     def test_fresh_install_creates_everything(self, tmp_path):
-        """No .claude/ dir → creates dir, script, settings.json."""
+        """No .claude/ dir → creates dir, script, settings.json with hook + allowlist."""
         result = install_hook(tmp_path)
 
         assert result["script"] == "created"
@@ -47,6 +47,8 @@ class TestInstallHook:
         assert "hooks" in data
         assert "PreToolUse" in data["hooks"]
         assert len(data["hooks"]["PreToolUse"]) == 1
+        # Allowlist for pensieve CLI
+        assert "Bash(pensieve:*)" in data.get("permissions", {}).get("allow", [])
 
     def test_script_is_executable(self, tmp_path):
         install_hook(tmp_path)
@@ -111,6 +113,48 @@ class TestInstallHook:
         assert "PreToolUse" in HOOK_SCRIPT
         assert "permissionDecision" in HOOK_SCRIPT
         assert "additionalContext" in HOOK_SCRIPT
+
+    def test_allowlist_added_idempotently(self, tmp_path):
+        """Re-running install does not duplicate the allowlist entry."""
+        install_hook(tmp_path)
+        install_hook(tmp_path)
+
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        allow = data.get("permissions", {}).get("allow", [])
+        assert allow.count("Bash(pensieve:*)") == 1
+
+    def test_allowlist_preserves_existing_permissions(self, tmp_path):
+        """Existing permissions.allow entries are preserved."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "settings.json").write_text(json.dumps({
+            "permissions": {
+                "allow": ["Bash(git:*)"],
+                "deny": ["Bash(rm:*)"],
+            }
+        }))
+
+        install_hook(tmp_path)
+
+        data = json.loads((claude_dir / "settings.json").read_text())
+        allow = data["permissions"]["allow"]
+        assert "Bash(git:*)" in allow
+        assert "Bash(pensieve:*)" in allow
+        assert data["permissions"]["deny"] == ["Bash(rm:*)"]
+
+    def test_allowlist_added_to_settings_without_permissions(self, tmp_path):
+        """Settings with no permissions key get it created."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "settings.json").write_text(json.dumps({
+            "other_setting": True
+        }))
+
+        install_hook(tmp_path)
+
+        data = json.loads((claude_dir / "settings.json").read_text())
+        assert data["other_setting"] is True
+        assert "Bash(pensieve:*)" in data["permissions"]["allow"]
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +380,7 @@ class TestCLI:
 
 class TestWireNano:
 
-    def test_creates_claudemd_if_missing(self, tmp_path):
+    def test_creates_claudemd_with_both_sections(self, tmp_path):
         from pensieve.hooks import wire_nano_to_claudemd
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -349,11 +393,17 @@ class TestWireNano:
         assert result["claudemd"] == "created"
 
         content = (repo / "CLAUDE.md").read_text()
+        # Nano section
         assert "# Nano" in content
         assert "<!-- pensieve:nano:start -->" in content
         assert "<!-- pensieve:nano:end -->" in content
+        # Usage section
+        assert "<!-- pensieve:usage:start -->" in content
+        assert "<!-- pensieve:usage:end -->" in content
+        assert "## Pensieve" in content
+        assert "pensieve brief" in content
 
-    def test_appends_to_existing_claudemd(self, tmp_path):
+    def test_appends_both_sections_to_existing_claudemd(self, tmp_path):
         from pensieve.hooks import wire_nano_to_claudemd
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -368,6 +418,9 @@ class TestWireNano:
         content = (repo / "CLAUDE.md").read_text()
         assert "Existing content." in content
         assert "# Nano" in content
+        assert "## Pensieve" in content
+        assert content.count("<!-- pensieve:nano:start -->") == 1
+        assert content.count("<!-- pensieve:usage:start -->") == 1
 
     def test_replaces_existing_section(self, tmp_path):
         from pensieve.hooks import wire_nano_to_claudemd
@@ -393,7 +446,7 @@ class TestWireNano:
         assert "More content." in content
         assert content.count("<!-- pensieve:nano:start -->") == 1
 
-    def test_idempotent(self, tmp_path):
+    def test_idempotent_both_sections(self, tmp_path):
         from pensieve.hooks import wire_nano_to_claudemd
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -402,8 +455,40 @@ class TestWireNano:
         (ad / "agent-context-nano.md").write_text("# Nano\n")
 
         wire_nano_to_claudemd(repo)
+        content_after_first = (repo / "CLAUDE.md").read_text()
+
         result = wire_nano_to_claudemd(repo)
         assert result["claudemd"] == "unchanged"
+
+        content_after_second = (repo / "CLAUDE.md").read_text()
+        assert content_after_first == content_after_second
+        # No duplicates
+        assert content_after_second.count("<!-- pensieve:nano:start -->") == 1
+        assert content_after_second.count("<!-- pensieve:usage:start -->") == 1
+
+    def test_replaces_usage_section_without_duplication(self, tmp_path):
+        """Existing usage section is replaced, not duplicated."""
+        from pensieve.hooks import wire_nano_to_claudemd
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        ad = repo / "agent-docs"
+        ad.mkdir()
+        (ad / "agent-context-nano.md").write_text("# Nano\n")
+        (repo / "CLAUDE.md").write_text(
+            "# Project\n\n"
+            "<!-- pensieve:usage:start -->\n"
+            "Old usage content.\n"
+            "<!-- pensieve:usage:end -->\n"
+        )
+
+        result = wire_nano_to_claudemd(repo)
+        assert result["claudemd"] == "updated"
+
+        content = (repo / "CLAUDE.md").read_text()
+        assert "Old usage content." not in content
+        assert "## Pensieve" in content
+        assert content.count("<!-- pensieve:usage:start -->") == 1
+        assert content.count("<!-- pensieve:nano:start -->") == 1
 
     def test_nano_not_found(self, tmp_path):
         from pensieve.hooks import wire_nano_to_claudemd
@@ -416,7 +501,7 @@ class TestWireNano:
 
 class TestUnwireNano:
 
-    def test_removes_section(self, tmp_path):
+    def test_removes_both_sections(self, tmp_path):
         from pensieve.hooks import unwire_nano_from_claudemd
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -424,7 +509,10 @@ class TestUnwireNano:
             "# Project\n\n"
             "<!-- pensieve:nano:start -->\n"
             "# Nano\n"
-            "<!-- pensieve:nano:end -->\n"
+            "<!-- pensieve:nano:end -->\n\n"
+            "<!-- pensieve:usage:start -->\n"
+            "## Pensieve\nUsage guide.\n"
+            "<!-- pensieve:usage:end -->\n"
             "\nKeep this.\n"
         )
 
@@ -433,6 +521,7 @@ class TestUnwireNano:
 
         content = (repo / "CLAUDE.md").read_text()
         assert "Nano" not in content
+        assert "Pensieve" not in content
         assert "Keep this." in content
 
     def test_no_claudemd(self, tmp_path):
@@ -674,8 +763,8 @@ class TestHookTelemetry:
 
 class TestBriefSuggestionHook:
 
-    def test_hook_output_contains_brief_suggestion(self, tmp_path):
-        """E2E: v2 route with brief_paths → hint includes pensieve brief command."""
+    def test_hook_output_contains_directive_brief(self, tmp_path):
+        """E2E: directory_prefix with brief_paths → directive brief wording (Bx7a)."""
         import subprocess
         from pensieve.hooks import install_hook
 
@@ -726,7 +815,7 @@ class TestBriefSuggestionHook:
         assert output
         data = json_mod.loads(output)
         ctx = data["hookSpecificOutput"]["additionalContext"]
-        assert "pensieve brief backend/routers" in ctx
+        assert "MUST run pensieve brief" in ctx
         assert "api-routers" in ctx
 
     def test_hook_output_no_brief_when_empty_brief_paths(self, tmp_path):
@@ -837,6 +926,7 @@ class TestBriefSuggestionHook:
         lines = telemetry_path.read_text().strip().split("\n")
         event = json_mod.loads(lines[-1])
         assert event["brief_suggested"] is True
+        assert event["brief_mode"] == "instructed"
 
     def test_telemetry_brief_suggested_false_for_no_brief(self, tmp_path):
         """E2E: telemetry marks brief_suggested=false when no brief_paths."""
@@ -952,14 +1042,16 @@ class TestBx6bCommonTaskBrief:
         assert output
         data = json_mod.loads(output)
         ctx = data["hookSpecificOutput"]["additionalContext"]
-        assert "pensieve brief" in ctx
+        assert "For structural detail:" in ctx  # suggestion wording, not directive
+        assert "MUST run" not in ctx  # NOT forced eval for common_task
         assert "backend/pipelines/" in ctx
 
-        # Telemetry should mark brief_suggested=true
+        # Telemetry should mark brief_suggested=true, brief_mode=suggested
         telemetry_path = ad / "hook-telemetry.jsonl"
         assert telemetry_path.exists()
         event = json_mod.loads(telemetry_path.read_text().strip().split("\n")[-1])
         assert event["brief_suggested"] is True
+        assert event["brief_mode"] == "suggested"
         assert event["route_match_type"] == "common_task"
 
     def test_hook_weak_common_task_no_brief(self, tmp_path):

@@ -1,4 +1,4 @@
-"""Path-aware routing engine for the PreToolUse hook (Bx2, Bx6a/b).
+"""Path-aware routing engine for the PreToolUse hook (Bx2, Bx6, Bx7).
 
 Takes a query string (from Glob pattern or Grep query) and a
 route-index.json, returns the best routing hint.
@@ -9,15 +9,25 @@ Priority order:
   3. common_task — query contains keywords from a subsystem's common_tasks
   4. fallback — generic context hint
 
-Delivery policy (Bx6a + Bx6b):
-  - directory_prefix with brief_paths → doc + brief suggestion (Bx6a)
-  - common_task with overlap >= _MIN_BRIEF_OVERLAP and brief_paths → doc + brief suggestion (Bx6b)
+Delivery policy:
+  - directory_prefix with brief_paths → doc + forced eval (Bx7a)
+    "MUST run pensieve brief <paths> OR state why you are not"
+  - common_task with overlap >= _MIN_BRIEF_OVERLAP and brief_paths →
+    doc + suggested brief (Bx6b)
+    "For structural detail: pensieve brief <paths>"
   - pattern_route, weak common_task, fallback → doc only
+
+brief_mode telemetry:
+  - "instructed" — directive brief shown (directory_prefix, Bx7a)
+  - "suggested" — suggestion brief shown (common_task, Bx6b)
+  - "none" — no brief in hint
+  Note: brief_mode tracks what hint was shown, not whether the agent
+  actually ran pensieve brief.
 
 Design:
   - Conservative matching — prefer false negatives over false positives
   - Deterministic — same query + same index → same result
-  - Single best hint — one line, one doc pointer, optional brief suggestion
+  - Single best hint — one line, one doc pointer, optional brief action
   - Longest-prefix-wins for directory matching
 
 This module is the canonical routing file. It contains both the library
@@ -47,6 +57,7 @@ class RouteResult:
     artifact_kind: str  # subsystem_doc, patterns, fallback
     brief_paths: list[str] = field(default_factory=list)
     show_brief_hint: bool = False
+    brief_mode: str = "none"  # what hint was shown: none | instructed (Bx7a) | suggested (Bx6b)
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +192,10 @@ def _match_directory_prefix(
 
         hint = f"Subsystem: {name}. {role + '. ' if role else ''}See {doc}."
         if brief_paths:
-            hint += f" For structural detail: {_render_brief_command(brief_paths)}"
+            hint += (
+                f" MUST run {_render_brief_command(brief_paths)} before this search"
+                f" OR state why you are not running pensieve brief."
+            )
 
         return RouteResult(
             hint=hint,
@@ -191,6 +205,7 @@ def _match_directory_prefix(
             artifact_kind="subsystem_doc",
             brief_paths=brief_paths,
             show_brief_hint=bool(brief_paths),
+            brief_mode="instructed" if brief_paths else "none",
         )
 
     return None
@@ -315,6 +330,7 @@ def _match_common_task(
             artifact_kind="subsystem_doc",
             brief_paths=brief_paths if strong else [],
             show_brief_hint=strong,
+            brief_mode="suggested" if strong else "none",
         )
 
     return None
@@ -353,13 +369,13 @@ _HOOK_ROUTING_TEMPLATE = '''\
 import json, re, shlex, sys, os.path
 query = sys.argv[1] if len(sys.argv) > 1 else ''
 if not query:
-    print(json.dumps({'hint':'','doc':'','subsystem':'','match_type':'fallback','artifact_kind':'fallback','brief_suggested':False}))
+    print(json.dumps({'hint':'','doc':'','subsystem':'','match_type':'fallback','artifact_kind':'fallback','brief_suggested':False,'brief_mode':'none'}))
     sys.exit(0)
 try:
     with open('agent-docs/route-index.json') as f:
         idx = json.load(f)
 except Exception:
-    print(json.dumps({'hint':'','doc':'','subsystem':'','match_type':'fallback','artifact_kind':'fallback','brief_suggested':False}))
+    print(json.dumps({'hint':'','doc':'','subsystem':'','match_type':'fallback','artifact_kind':'fallback','brief_suggested':False,'brief_mode':'none'}))
     sys.exit(0)
 
 v = idx.get('version', 1)
@@ -383,8 +399,8 @@ if v >= 2:
         bp = r.get('brief_paths', [])
         hint = ('Subsystem: ' + nm + '. ' + (role + '. ' if role else '') + 'See ' + doc + '.')
         if bp:
-            hint += ' For structural detail: pensieve brief ' + ' '.join(shlex.quote(p) for p in bp)
-        result = {'hint': hint, 'doc': doc, 'subsystem': nm, 'match_type': 'directory_prefix', 'artifact_kind': 'subsystem_doc', 'brief_suggested': bool(bp)}
+            hint += ' MUST run pensieve brief ' + ' '.join(shlex.quote(p) for p in bp) + ' before this search OR state why you are not running pensieve brief.'
+        result = {'hint': hint, 'doc': doc, 'subsystem': nm, 'match_type': 'directory_prefix', 'artifact_kind': 'subsystem_doc', 'brief_suggested': bool(bp), 'brief_mode': 'instructed' if bp else 'none'}
 
 # --- Priority 2: pattern_route (full name always, fragments >= threshold) ---
 if not result and v >= 2:
@@ -421,7 +437,7 @@ if not result and v >= 2:
                     break
         if matched:
             da = pr.get('doc_anchor', f'patterns.md#{pn}')
-            result = {'hint': f'Pattern: {pn}. See agent-docs/{da}.', 'doc': f'agent-docs/{da}', 'subsystem': pr.get('subsystem',''), 'match_type': 'pattern_route', 'artifact_kind': 'patterns', 'brief_suggested': False}
+            result = {'hint': f'Pattern: {pn}. See agent-docs/{da}.', 'doc': f'agent-docs/{da}', 'subsystem': pr.get('subsystem',''), 'match_type': 'pattern_route', 'artifact_kind': 'patterns', 'brief_suggested': False, 'brief_mode': 'none'}
             break
 
 # --- Priority 3: common_task (best-match-wins, brief on strong match Bx6b) ---
@@ -447,7 +463,7 @@ if not result and v >= 2:
             hint = f'Subsystem: {nm}. See {doc}.'
             if strong:
                 hint += ' For structural detail: pensieve brief ' + ' '.join(shlex.quote(p) for p in bp)
-            result = {'hint': hint, 'doc': doc, 'subsystem': nm, 'match_type': 'common_task', 'artifact_kind': 'subsystem_doc', 'brief_suggested': strong}
+            result = {'hint': hint, 'doc': doc, 'subsystem': nm, 'match_type': 'common_task', 'artifact_kind': 'subsystem_doc', 'brief_suggested': strong, 'brief_mode': 'suggested' if strong else 'none'}
 
 # --- v1 fallback ---
 if not result and v < 2:
@@ -455,12 +471,12 @@ if not result and v < 2:
         if r.get('match_type') == 'directory_prefix':
             p = r.get('pattern','')
             if p and (query == p or query.startswith(p + '/')):
-                result = {'hint': r.get('hint',''), 'doc': r.get('doc_path',''), 'subsystem': r.get('subsystem',''), 'match_type': 'directory_prefix', 'artifact_kind': 'subsystem_doc', 'brief_suggested': False}
+                result = {'hint': r.get('hint',''), 'doc': r.get('doc_path',''), 'subsystem': r.get('subsystem',''), 'match_type': 'directory_prefix', 'artifact_kind': 'subsystem_doc', 'brief_suggested': False, 'brief_mode': 'none'}
                 break
 
 if not result:
     fb = idx.get('fallback_hint', '')
-    result = {'hint': fb, 'doc': 'agent-docs/agent-context.md', 'subsystem': '', 'match_type': 'fallback', 'artifact_kind': 'fallback', 'brief_suggested': False}
+    result = {'hint': fb, 'doc': 'agent-docs/agent-context.md', 'subsystem': '', 'match_type': 'fallback', 'artifact_kind': 'fallback', 'brief_suggested': False, 'brief_mode': 'none'}
 
 print(json.dumps(result))
 '''

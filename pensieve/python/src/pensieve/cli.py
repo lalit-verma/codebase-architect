@@ -572,12 +572,34 @@ def _cmd_scan(args) -> int:
     return 0 if s["failed"] == 0 else 1
 
 
+def _infer_repo_root(absolute_path: "Path") -> "Path | None":
+    """Walk up from an absolute path to find the repo root.
+
+    Looks for a directory containing agent-docs/structure.json.
+    Returns the repo root or None if not found.
+    """
+    current = absolute_path if absolute_path.is_dir() else absolute_path.parent
+    while current != current.parent:
+        if (current / "agent-docs" / "structure.json").exists():
+            return current
+        current = current.parent
+    return None
+
+
 def _cmd_brief(args) -> int:
     """Handle the `pensieve brief` subcommand."""
     from pathlib import Path
     from pensieve.context import format_subsystem_brief, validate_subsystem_brief
 
     repo_root = Path(args.repo).resolve()
+
+    # If --repo wasn't explicitly set and paths are absolute, infer repo root
+    # from the first absolute path by walking up to find agent-docs/structure.json
+    if args.repo == "." and args.paths and Path(args.paths[0]).is_absolute():
+        inferred = _infer_repo_root(Path(args.paths[0]).resolve())
+        if inferred:
+            repo_root = inferred
+
     if not repo_root.is_dir():
         print(f"pensieve brief: not a directory: {repo_root}", file=sys.stderr)
         return 1
@@ -593,21 +615,36 @@ def _cmd_brief(args) -> int:
         )
         return 1
 
-    # Reject paths that resolve outside the repo root
+    # Convert absolute paths to relative for processing
+    resolved_paths = []
     for p in args.paths:
-        resolved = (repo_root / p).resolve()
-        try:
-            resolved.relative_to(repo_root)
-        except ValueError:
-            print(
-                f"pensieve brief: path is outside repo root: {p}\n"
-                f"  All paths must be relative to {repo_root}",
-                file=sys.stderr,
-            )
-            return 1
+        rp = Path(p)
+        if rp.is_absolute():
+            try:
+                rp = rp.resolve().relative_to(repo_root)
+            except ValueError:
+                print(
+                    f"pensieve brief: path is outside repo root: {p}\n"
+                    f"  All paths must be within {repo_root}",
+                    file=sys.stderr,
+                )
+                return 1
+        else:
+            # Relative path — validate it's within repo root
+            resolved = (repo_root / rp).resolve()
+            try:
+                resolved.relative_to(repo_root)
+            except ValueError:
+                print(
+                    f"pensieve brief: path is outside repo root: {p}\n"
+                    f"  All paths must be relative to {repo_root}",
+                    file=sys.stderr,
+                )
+                return 1
+        resolved_paths.append(str(rp))
 
     brief = format_subsystem_brief(
-        args.paths, structure_path, graph_path,
+        resolved_paths, structure_path, graph_path,
     )
 
     validation_errors = validate_subsystem_brief(brief)
