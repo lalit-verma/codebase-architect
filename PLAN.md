@@ -1004,7 +1004,41 @@ hook ideas. We only implement the highest-leverage pieces:
   | Co-located duplication in routing | Accept for now | `route.py` is the canonical routing file, but both library logic and hook template still need to be kept in sync | For every future routing change, review both code paths explicitly; harden further only if this becomes a real maintenance tax |
   | Telemetry gap | Monitor and plan | We know when `brief` was suggested, but not yet whether it was actually used or whether it reduced blind search | Extend telemetry later to correlate suggestions with subsequent `pensieve brief` usage and search-thrash reduction before expanding Bx6 further |
 
-- [ ] **Bx7.** Add freshness and validity checks for routed artifacts.
+- [ ] **Bx7.** Make `brief` execution part of the coding-session harness when subsystem certainty is high.
+  This is the next step after Bx6 suggestion-mode `brief`.
+  The goal is to reduce blind search once the subsystem is already known,
+  by moving from optional `brief` nudges to stronger harness-driven
+  behavior.
+
+  - [ ] **Bx7a.** Strong directive brief execution on sure subsystem matches.
+    For high-confidence subsystem matches, especially `directory_prefix`,
+    the hook should move from “you may run `pensieve brief`” to an
+    explicit next-step instruction: run `pensieve brief <paths>` before
+    further broad search. This tests whether stronger instruction is
+    enough to change agent behavior without increasing runtime
+    complexity.
+
+    Guardrails:
+    - only on sure subsystem matches (`directory_prefix`)
+    - not on `pattern_route`
+    - not on weak/fuzzy `common_task`
+    - one line, one clear action
+    - add telemetry to distinguish suggested vs instructed brief
+
+  - [ ] **Bx7b.** Automatic brief preload on sure subsystem matches.
+    If Bx7a shows that agents still ignore `brief`, the hook should run
+    `pensieve brief <brief_paths>` itself on first strong subsystem
+    entry and inject a compact structural summary. This should be
+    treated as a preload, not a replacement for docs.
+
+    Guardrails:
+    - only on strong `directory_prefix` matches
+    - one preload per subsystem per session unless explicitly refreshed
+    - inject a compact summary, not the full raw brief
+    - track preload usage and anti-repeat behavior
+    - defer `common_task` auto-preload until stronger live evidence exists
+
+- [ ] **Bx8.** Add freshness and validity checks for routed artifacts.
   Routing should not rely on stale structural summaries. Add stage-
   specific fingerprints for:
   - `structural-profiles.md`
@@ -1016,7 +1050,7 @@ hook ideas. We only implement the highest-leverage pieces:
   Hook behavior should degrade gracefully when artifacts are stale or
   partial.
 
-- [ ] **Bx8.** Benchmark the adaptive hook layer.
+- [ ] **Bx9.** Benchmark the adaptive hook layer.
   Compare:
   - docs only
   - docs + current hook
@@ -1093,8 +1127,9 @@ Why second:
 - route agents to the right subsystem and the right `brief` early
 
 **Wave 3 — optimization layers**
-6. `Bx4` anti-thrash intervention
-7. `Bx3` recipe-first hints
+6. `Bx7` brief execution during coding
+7. `Bx4` anti-thrash intervention
+8. `Bx3` recipe-first hints
 
 Why third:
 - these build on top of basic routing
@@ -1102,8 +1137,8 @@ Why third:
   simpler routing is working
 
 **Wave 4 — hardening + validation**
-8. `Bx7` freshness/validity
-9. `Bx8` benchmark ablation
+9. `Bx8` freshness/validity
+10. `Bx9` benchmark ablation
 
 Why fourth:
 - freshness hardening matters once routing is real

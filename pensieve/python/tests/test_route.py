@@ -483,16 +483,17 @@ class TestDeterministic:
 class TestBriefSuggestion:
 
     def test_directory_prefix_with_brief_paths(self, tmp_path):
-        """directory_prefix match with brief_paths → hint includes brief command."""
+        """directory_prefix match with brief_paths → directive brief (Bx7a)."""
         idx = _write_index(tmp_path, _SAMPLE_INDEX)
         r = route_query("backend/open_webui/routers/chats.py", idx)
         assert r.match_type == "directory_prefix"
         assert r.show_brief_hint is True
         assert r.brief_paths == ["backend/open_webui/routers"]
-        assert "pensieve brief backend/open_webui/routers" in r.hint
+        assert "Before further search, run: pensieve brief" in r.hint
+        assert r.brief_mode == "instructed"
 
     def test_directory_prefix_without_brief_paths(self, tmp_path):
-        """directory_prefix match without brief_paths → doc-only hint."""
+        """directory_prefix match without brief_paths → doc-only hint, no directive."""
         data = dict(_SAMPLE_INDEX)
         data["subsystem_routes"] = [{
             "subsystem": "core",
@@ -507,6 +508,7 @@ class TestBriefSuggestion:
         assert r.show_brief_hint is False
         assert r.brief_paths == []
         assert "pensieve brief" not in r.hint
+        assert r.brief_mode == "none"
 
     def test_directory_prefix_empty_brief_paths(self, tmp_path):
         """directory_prefix match with empty brief_paths → doc-only hint."""
@@ -535,6 +537,7 @@ class TestBriefSuggestion:
         assert r.show_brief_hint is False
         assert r.brief_paths == []
         assert "pensieve brief" not in r.hint
+        assert r.brief_mode == "none"
 
     def test_common_task_weak_no_brief(self, tmp_path):
         """Bx6b: weak common_task (overlap 1) does not suggest brief."""
@@ -545,9 +548,10 @@ class TestBriefSuggestion:
         assert r.show_brief_hint is False
         assert r.brief_paths == []
         assert "pensieve brief" not in r.hint
+        assert r.brief_mode == "none"
 
     def test_common_task_strong_with_brief(self, tmp_path):
-        """Bx6b: strong common_task (overlap >= 2) with brief_paths → brief suggested."""
+        """Bx6b: strong common_task → suggested brief (not instructed)."""
         data = dict(_SAMPLE_INDEX)
         data["subsystem_routes"] = [{
             "subsystem": "digest-pipeline",
@@ -557,13 +561,12 @@ class TestBriefSuggestion:
             "brief_paths": ["backend/pipelines/"],
         }]
         idx = _write_index(tmp_path, data)
-        # "digest pipeline" → overlap 2 (digest, pipeline)
         r = route_query("digest pipeline", idx)
         assert r.match_type == "common_task"
         assert r.show_brief_hint is True
-        assert r.brief_paths == ["backend/pipelines/"]
-        assert "pensieve brief" in r.hint
-        assert "backend/pipelines/" in r.hint
+        assert "For structural detail:" in r.hint  # suggestion wording, not directive
+        assert "Before further search" not in r.hint  # NOT directive
+        assert r.brief_mode == "suggested"
 
     def test_common_task_strong_empty_brief_paths(self, tmp_path):
         """Bx6b: strong overlap but empty brief_paths → no brief."""
@@ -603,6 +606,7 @@ class TestBriefSuggestion:
         assert r.match_type == "fallback"
         assert r.show_brief_hint is False
         assert r.brief_paths == []
+        assert r.brief_mode == "none"
 
     def test_v1_index_no_brief(self, tmp_path):
         """v1 index has no brief concept."""

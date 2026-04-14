@@ -59,6 +59,7 @@ ARTIFACT_KIND="fallback"
 TARGET_SUBSYSTEM=""
 ROUTE_MATCH_TYPE="fallback"
 BRIEF_SUGGESTED="false"
+BRIEF_MODE="none"
 
 if [ -f agent-docs/route-index.json ] && command -v python3 &>/dev/null; then
   ROUTE_RESULT=$(python3 -c "
@@ -72,6 +73,7 @@ if [ -f agent-docs/route-index.json ] && command -v python3 &>/dev/null; then
     ROUTE_MATCH_TYPE=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('match_type','fallback'))" 2>/dev/null || echo "fallback")
     ARTIFACT_KIND=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('artifact_kind','fallback'))" 2>/dev/null || echo "fallback")
     BRIEF_SUGGESTED=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print('true' if json.load(sys.stdin).get('brief_suggested',False) else 'false')" 2>/dev/null || echo "false")
+    BRIEF_MODE=$(echo "$ROUTE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('brief_mode','none'))" 2>/dev/null || echo "none")
     if [ -n "$ROUTED_HINT" ]; then
       HINT="$ROUTED_HINT"
       HINT_TYPE="routed"
@@ -96,10 +98,11 @@ event = {
     'target_subsystem': sys.argv[8],
     'session_id': sys.argv[9],
     'brief_suggested': sys.argv[10] == 'true',
+    'brief_mode': sys.argv[11],
 }
 with open('agent-docs/hook-telemetry.jsonl', 'a') as f:
     f.write(json.dumps(event) + '\\n')
-" "$TIMESTAMP" "$TOOL_NAME" "$TOOL_INPUT" "$HINT_TYPE" "$ROUTE_MATCH_TYPE" "$ARTIFACT_KIND" "$TARGET_DOC" "$TARGET_SUBSYSTEM" "$SESSION_ID" "$BRIEF_SUGGESTED" 2>/dev/null
+" "$TIMESTAMP" "$TOOL_NAME" "$TOOL_INPUT" "$HINT_TYPE" "$ROUTE_MATCH_TYPE" "$ARTIFACT_KIND" "$TARGET_DOC" "$TARGET_SUBSYSTEM" "$SESSION_ID" "$BRIEF_SUGGESTED" "$BRIEF_MODE" 2>/dev/null
 
 # Output the hook response
 cat <<HOOKEOF

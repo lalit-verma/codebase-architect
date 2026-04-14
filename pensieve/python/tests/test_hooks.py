@@ -674,8 +674,8 @@ class TestHookTelemetry:
 
 class TestBriefSuggestionHook:
 
-    def test_hook_output_contains_brief_suggestion(self, tmp_path):
-        """E2E: v2 route with brief_paths → hint includes pensieve brief command."""
+    def test_hook_output_contains_directive_brief(self, tmp_path):
+        """E2E: directory_prefix with brief_paths → directive brief wording (Bx7a)."""
         import subprocess
         from pensieve.hooks import install_hook
 
@@ -726,7 +726,7 @@ class TestBriefSuggestionHook:
         assert output
         data = json_mod.loads(output)
         ctx = data["hookSpecificOutput"]["additionalContext"]
-        assert "pensieve brief backend/routers" in ctx
+        assert "Before further search, run: pensieve brief" in ctx
         assert "api-routers" in ctx
 
     def test_hook_output_no_brief_when_empty_brief_paths(self, tmp_path):
@@ -837,6 +837,7 @@ class TestBriefSuggestionHook:
         lines = telemetry_path.read_text().strip().split("\n")
         event = json_mod.loads(lines[-1])
         assert event["brief_suggested"] is True
+        assert event["brief_mode"] == "instructed"
 
     def test_telemetry_brief_suggested_false_for_no_brief(self, tmp_path):
         """E2E: telemetry marks brief_suggested=false when no brief_paths."""
@@ -952,14 +953,16 @@ class TestBx6bCommonTaskBrief:
         assert output
         data = json_mod.loads(output)
         ctx = data["hookSpecificOutput"]["additionalContext"]
-        assert "pensieve brief" in ctx
+        assert "For structural detail:" in ctx  # suggestion wording, not directive
+        assert "Before further search" not in ctx  # NOT directive for common_task
         assert "backend/pipelines/" in ctx
 
-        # Telemetry should mark brief_suggested=true
+        # Telemetry should mark brief_suggested=true, brief_mode=suggested
         telemetry_path = ad / "hook-telemetry.jsonl"
         assert telemetry_path.exists()
         event = json_mod.loads(telemetry_path.read_text().strip().split("\n")[-1])
         assert event["brief_suggested"] is True
+        assert event["brief_mode"] == "suggested"
         assert event["route_match_type"] == "common_task"
 
     def test_hook_weak_common_task_no_brief(self, tmp_path):
