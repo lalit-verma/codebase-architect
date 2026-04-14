@@ -1,4 +1,4 @@
-"""Path-aware routing engine for the PreToolUse hook (Bx2, Bx6, Bx7a).
+"""Path-aware routing engine for the PreToolUse hook (Bx2, Bx6, Bx7).
 
 Takes a query string (from Glob pattern or Grep query) and a
 route-index.json, returns the best routing hint.
@@ -10,8 +10,8 @@ Priority order:
   4. fallback — generic context hint
 
 Delivery policy:
-  - directory_prefix with brief_paths → doc + forced eval brief (Bx7a)
-    "MUST run pensieve brief <paths> OR state why not"
+  - directory_prefix with brief_paths → doc + forced eval (Bx7a)
+    "MUST run pensieve brief <paths> OR state why you are not"
   - common_task with overlap >= _MIN_BRIEF_OVERLAP and brief_paths →
     doc + suggested brief (Bx6b)
     "For structural detail: pensieve brief <paths>"
