@@ -489,7 +489,7 @@ class TestBriefSuggestion:
         assert r.match_type == "directory_prefix"
         assert r.show_brief_hint is True
         assert r.brief_paths == ["backend/open_webui/routers"]
-        assert "Before further search, run: pensieve brief" in r.hint
+        assert "MUST run pensieve brief" in r.hint
         assert r.brief_mode == "instructed"
 
     def test_directory_prefix_without_brief_paths(self, tmp_path):
@@ -565,7 +565,7 @@ class TestBriefSuggestion:
         assert r.match_type == "common_task"
         assert r.show_brief_hint is True
         assert "For structural detail:" in r.hint  # suggestion wording, not directive
-        assert "Before further search" not in r.hint  # NOT directive
+        assert "MUST run" not in r.hint  # NOT forced eval
         assert r.brief_mode == "suggested"
 
     def test_common_task_strong_empty_brief_paths(self, tmp_path):

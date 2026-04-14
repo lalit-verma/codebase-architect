@@ -10,8 +10,8 @@ Priority order:
   4. fallback — generic context hint
 
 Delivery policy:
-  - directory_prefix with brief_paths → doc + directive brief (Bx7a)
-    "Before further search, run: pensieve brief <paths>"
+  - directory_prefix with brief_paths → doc + forced eval brief (Bx7a)
+    "MUST run pensieve brief <paths> OR state why not"
   - common_task with overlap >= _MIN_BRIEF_OVERLAP and brief_paths →
     doc + suggested brief (Bx6b)
     "For structural detail: pensieve brief <paths>"
@@ -192,7 +192,10 @@ def _match_directory_prefix(
 
         hint = f"Subsystem: {name}. {role + '. ' if role else ''}See {doc}."
         if brief_paths:
-            hint += f" Before further search, run: {_render_brief_command(brief_paths)}"
+            hint += (
+                f" MUST run {_render_brief_command(brief_paths)} before this search"
+                f" OR state why you are not running pensieve brief."
+            )
 
         return RouteResult(
             hint=hint,
@@ -396,7 +399,7 @@ if v >= 2:
         bp = r.get('brief_paths', [])
         hint = ('Subsystem: ' + nm + '. ' + (role + '. ' if role else '') + 'See ' + doc + '.')
         if bp:
-            hint += ' Before further search, run: pensieve brief ' + ' '.join(shlex.quote(p) for p in bp)
+            hint += ' MUST run pensieve brief ' + ' '.join(shlex.quote(p) for p in bp) + ' before this search OR state why you are not running pensieve brief.'
         result = {'hint': hint, 'doc': doc, 'subsystem': nm, 'match_type': 'directory_prefix', 'artifact_kind': 'subsystem_doc', 'brief_suggested': bool(bp), 'brief_mode': 'instructed' if bp else 'none'}
 
 # --- Priority 2: pattern_route (full name always, fragments >= threshold) ---

@@ -196,17 +196,29 @@ def install_hook(repo_root: Path) -> dict[str, str]:
         for h in pre_tool
     )
 
+    hook_changed = False
     if already:
         result["settings"] = "already_registered"
     else:
-        # Track whether settings.json existed before we write
-        is_new_settings = not settings_path.exists()
         pre_tool.append(HOOK_ENTRY)
+        hook_changed = True
+
+    # --- Merge permissions allowlist for pensieve CLI ---
+    _PENSIEVE_ALLOW = "Bash(pensieve:*)"
+    permissions = settings.setdefault("permissions", {})
+    allow_list = permissions.setdefault("allow", [])
+    if _PENSIEVE_ALLOW not in allow_list:
+        allow_list.append(_PENSIEVE_ALLOW)
+        hook_changed = True
+
+    if hook_changed:
+        is_new_settings = not settings_path.exists()
         settings_path.write_text(
             json.dumps(settings, indent=2) + "\n",
             encoding="utf-8",
         )
-        result["settings"] = "created" if is_new_settings else "merged"
+        if result.get("settings") != "already_registered":
+            result["settings"] = "created" if is_new_settings else "merged"
 
     return result
 
@@ -296,28 +308,29 @@ _USAGE_END = "<!-- pensieve:usage:end -->"
 _USAGE_CONTENT = """\
 ## Pensieve
 
-Pensieve is this repo's structural context tool. Use it to get fast orientation once the relevant path, subsystem, or slice is already known.
+`pensieve brief <paths>` is this repo's structural context tool. It is **mandatory** before broad search inside a known subsystem.
 
-### When to use it
-- Use `pensieve brief <paths>` when routing, file paths, or your current search already narrowed the work to a subsystem or directory slice.
-- Prefer it before repeated broad `Glob` / `Grep` when you need structure, not just one symbol.
-- Do not use it for vague repo-wide questions when the relevant area is still unknown.
+### Rules
+- MUST run `pensieve brief <paths>` before reading any file over 300 lines in a known subsystem.
+- MUST run `pensieve brief <paths>` before more than one `Grep` in the same subsystem.
+- Searching a known subsystem without a prior `pensieve brief` is a process error.
+- Skip only if you already ran `pensieve brief` for this subsystem earlier in this session.
 
 ### What it gives you
 `pensieve brief` returns a structural map for the selected slice:
-- key files and signatures
-- internal dependencies
-- entry points / wiring files
+- key files and signatures (sorted by dependency count)
+- internal dependencies between files
+- entry points and wiring files
 - related tests
 - important rationale comments (`WHY`, `HACK`, `IMPORTANT`)
 
-### How to use it well
-- Start with the routed subsystem or path slice.
-- Run `pensieve brief <paths>`.
-- Use the brief to choose the next files to open, then continue with targeted reads and edits.
-- Prefer this over reading large `agent-docs/` files in the main thread.
+### How to use it
+1. Identify the subsystem from the routing hint or file path.
+2. Run `pensieve brief <paths>`.
+3. Use the brief output to choose the right files to open.
+4. Continue with targeted reads and edits.
 
-Treat Pensieve as the default structural tool once the area of work is known."""
+This replaces reading large `agent-docs/` files in the main thread."""
 
 
 def _upsert_section(content: str, start_marker: str, end_marker: str, section_body: str) -> tuple[str, str]:

@@ -31,7 +31,7 @@ from pensieve.hooks import install_hook, uninstall_hook, HOOK_SCRIPT, HOOK_ENTRY
 class TestInstallHook:
 
     def test_fresh_install_creates_everything(self, tmp_path):
-        """No .claude/ dir → creates dir, script, settings.json."""
+        """No .claude/ dir → creates dir, script, settings.json with hook + allowlist."""
         result = install_hook(tmp_path)
 
         assert result["script"] == "created"
@@ -47,6 +47,8 @@ class TestInstallHook:
         assert "hooks" in data
         assert "PreToolUse" in data["hooks"]
         assert len(data["hooks"]["PreToolUse"]) == 1
+        # Allowlist for pensieve CLI
+        assert "Bash(pensieve:*)" in data.get("permissions", {}).get("allow", [])
 
     def test_script_is_executable(self, tmp_path):
         install_hook(tmp_path)
@@ -111,6 +113,48 @@ class TestInstallHook:
         assert "PreToolUse" in HOOK_SCRIPT
         assert "permissionDecision" in HOOK_SCRIPT
         assert "additionalContext" in HOOK_SCRIPT
+
+    def test_allowlist_added_idempotently(self, tmp_path):
+        """Re-running install does not duplicate the allowlist entry."""
+        install_hook(tmp_path)
+        install_hook(tmp_path)
+
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        allow = data.get("permissions", {}).get("allow", [])
+        assert allow.count("Bash(pensieve:*)") == 1
+
+    def test_allowlist_preserves_existing_permissions(self, tmp_path):
+        """Existing permissions.allow entries are preserved."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "settings.json").write_text(json.dumps({
+            "permissions": {
+                "allow": ["Bash(git:*)"],
+                "deny": ["Bash(rm:*)"],
+            }
+        }))
+
+        install_hook(tmp_path)
+
+        data = json.loads((claude_dir / "settings.json").read_text())
+        allow = data["permissions"]["allow"]
+        assert "Bash(git:*)" in allow
+        assert "Bash(pensieve:*)" in allow
+        assert data["permissions"]["deny"] == ["Bash(rm:*)"]
+
+    def test_allowlist_added_to_settings_without_permissions(self, tmp_path):
+        """Settings with no permissions key get it created."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "settings.json").write_text(json.dumps({
+            "other_setting": True
+        }))
+
+        install_hook(tmp_path)
+
+        data = json.loads((claude_dir / "settings.json").read_text())
+        assert data["other_setting"] is True
+        assert "Bash(pensieve:*)" in data["permissions"]["allow"]
 
 
 # ---------------------------------------------------------------------------
@@ -771,7 +815,7 @@ class TestBriefSuggestionHook:
         assert output
         data = json_mod.loads(output)
         ctx = data["hookSpecificOutput"]["additionalContext"]
-        assert "Before further search, run: pensieve brief" in ctx
+        assert "MUST run pensieve brief" in ctx
         assert "api-routers" in ctx
 
     def test_hook_output_no_brief_when_empty_brief_paths(self, tmp_path):
@@ -999,7 +1043,7 @@ class TestBx6bCommonTaskBrief:
         data = json_mod.loads(output)
         ctx = data["hookSpecificOutput"]["additionalContext"]
         assert "For structural detail:" in ctx  # suggestion wording, not directive
-        assert "Before further search" not in ctx  # NOT directive for common_task
+        assert "MUST run" not in ctx  # NOT forced eval for common_task
         assert "backend/pipelines/" in ctx
 
         # Telemetry should mark brief_suggested=true, brief_mode=suggested
