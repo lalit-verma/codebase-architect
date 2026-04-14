@@ -110,15 +110,50 @@ A subsystem doc is not good enough if it:
 
 ## Procedure
 
+### Step 0: Read Subsystem Structural Brief
+
+Run `pensieve brief <paths>` where `<paths>` are this subsystem's
+directories and/or key files from the analysis state. `pensieve brief`
+accepts file paths, directory paths, or a mix — directories expand
+recursively, files are included directly. For example:
+`pensieve brief backend/open_webui/models backend/open_webui/internal/db.py`
+
+If `pensieve` is available, read the output. It provides:
+- **`<signatures>`** — every file's public symbols with full signatures,
+  sorted by centrality (most-depended-on files first). Use this to
+  understand what each file exports without reading the file.
+- **`<internal_dependencies>`** — which files within the subsystem
+  depend on each other, and which external directories this subsystem
+  imports from or is imported by.
+- **`<entry_points>`** — entry files within the subsystem (main.py, etc.)
+- **`<rationale_comments>`** — developer WHY/HACK/IMPORTANT annotations.
+
+This is a high-signal structural summary, not a replacement for reading
+source code. Use it for:
+- **File selection:** read the files the brief shows as most central
+  (highest dependant count) and architecturally revealing
+- **Dependency understanding:** the brief's edge data is authoritative
+  for import relationships
+- **Coverage planning:** know which files exist and what they export
+  before deciding what to read in full
+
+If `pensieve brief` is not available, fall back to the manual approach
+in Step 1.
+
 ### Step 1: Read the Subsystem
 
 Using the path from the analysis state:
 
-1. List all files in the subsystem directory
-2. For small subsystems (<30 files): read all non-test files, sample
-   tests
-3. For large subsystems (30+ files): read central files fully, sample
-   repetitive leaves. Note what was sampled.
+1. **If structural brief was read in Step 0:** You already know every
+   file's symbols and relationships from the brief. Read in full only
+   the files that the brief shows are architecturally important (high
+   dependant count, entry points, files with the most symbols). The
+   brief gives you the map; reading gives you the understanding. Note
+   what was read fully vs skipped.
+2. For small subsystems (<30 files) without structural data: read all
+   non-test files, sample tests.
+3. For large subsystems (30+ files) without structural data: read
+   central files fully, sample repetitive leaves. Note what was sampled.
 
 ### Step 2: Evaluate Recursion Need
 
@@ -129,27 +164,57 @@ Check whether this subsystem should be decomposed:
 - 3+ internal modules that each have their own contracts or entrypoints
 
 **If triggered:**
-Present the decomposition proposal in chat:
+Present the decomposition proposal in chat. For each child, list the
+exact directories, not just a name:
 
 > This subsystem is large enough to decompose into sub-modules:
-> - **{sub-1}** (`{path}`): {responsibility} ({N} files)
-> - **{sub-2}** (`{path}`): {responsibility} ({N} files)
-> - **{sub-3}** (`{path}`): {responsibility} ({N} files)
+> - **{child-1}** — dirs: `{dir1}`, `{dir2}` — {responsibility} (~{N} files)
+> - **{child-2}** — dirs: `{dir3}` — {responsibility} (~{N} files)
+> - **{child-3}** — dirs: `{dir4}`, `{dir5}` — {responsibility} (~{N} files)
 >
 > I'll write a parent overview doc plus individual sub-module docs.
+> Each child will get its own `pensieve brief` for structural evidence.
 > **Confirm? Or should I analyze as a single unit?**
 
 Wait for user confirmation before proceeding.
 
 **If confirmed for recursion:**
-- Write parent doc at `agent-docs/subsystems/{name}.md` covering:
-  overview, internal map, cross-cutting concerns, how sub-modules
-  connect
-- Deep-dive each sub-module, writing to
-  `agent-docs/subsystems/{name}/{child}.md`
-- Apply the same analysis procedure to each child
-- Recursion applies up to depth 3. At depth 3: summarize, don't
-  decompose further.
+
+1. Write the **parent doc** at `agent-docs/subsystems/{name}.md`
+   covering: overview, internal map, cross-cutting concerns, how
+   sub-modules connect. Use the parent brief for this.
+
+2. **For each child sub-module, restart from Step 0 using that child's
+   paths.** This means:
+   - Run `pensieve brief <child dirs and/or files>` for the child's
+     specific paths (not the parent's). Pass directories for clean
+     sub-modules, or individual files if the child is an ad-hoc slice.
+   - Read that child's brief
+   - Follow Step 1 (file selection guided by the child brief)
+   - Follow Step 3 (analysis using the child brief's dependencies)
+   - Write the child doc to
+     `agent-docs/subsystems/{name}/{child}.md`
+
+   **Do not reuse the parent brief as the primary structural input for
+   child analysis.** The parent brief covers the entire parent
+   subsystem — it does not have the internal detail of each child's
+   file-to-file relationships. Each child needs its own brief.
+
+3. Recursion applies up to depth 3. At depth 3: summarize, don't
+   decompose further.
+
+4. Update `agent-docs/.analysis-state.md` to record the recursion:
+   ```
+   recursion_applied:
+     - parent: {subsystem-name}
+       children:
+         - name: {child-1}
+           dirs: [{dir1}, {dir2}]
+           status: completed
+         - name: {child-2}
+           dirs: [{dir3}]
+           status: completed
+   ```
 
 **If NOT triggered or user declines:**
 Proceed with a single flat document.
@@ -186,7 +251,14 @@ if recursive):
 
 **e) Dependencies**
 - Internal: what other subsystems does it import? What imports it?
+  **If a pensieve brief was read in Step 0**, its
+  `<internal_dependencies>` section has authoritative edge data —
+  within-subsystem file-to-file edges and external dependency counts
+  per directory. Use this instead of guessing from imports you read.
 - External: what third-party packages? Which are load-bearing?
+  The brief's external dependency edges show which outside directories
+  this subsystem depends on. For third-party packages, check the
+  imports visible in the files you read.
 - Flag circular dependencies or surprising coupling
 
 **f) Configuration**

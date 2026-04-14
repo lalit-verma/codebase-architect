@@ -43,8 +43,9 @@ For each detected pattern, provide a recipe. Format:
 2. Register in `{registration file}`
 3. Add tests in `{test path}`
 ```
-Include only patterns with 3+ instances in the codebase.
-Typically 2-6 patterns.
+Include only the most important patterns (with 3 or more occurrences)
+from `patterns.md`. Typically 2-6 patterns here. The full catalog
+lives in `patterns.md` — `agent-context.md` is the curated subset.
 
 ### `## Conventions`
 Bullet list of project-specific rules with file references. Format:
