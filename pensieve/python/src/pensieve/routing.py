@@ -316,7 +316,8 @@ def build_route_index(
             errors.append(f"Skipping non-dict pattern entry: {entry}")
             continue
 
-        pattern_name = str(entry.get("pattern", ""))
+        # Accept both "pattern:" (canonical) and "name:" (LLM variant)
+        pattern_name = str(entry.get("pattern", "") or entry.get("name", ""))
         if not pattern_name:
             errors.append(f"Skipping pattern entry with no name: {entry}")
             continue
